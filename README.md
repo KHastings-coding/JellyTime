@@ -21,7 +21,7 @@ JellyTime sits alongside your Jellyfin server and:
 ### 2. Clone / Download
 
 ```bash
-git clone <this-repo> jellytime
+git clone https://github.com/KHastings-coding/JellyTime.git
 cd jellytime
 ```
 
