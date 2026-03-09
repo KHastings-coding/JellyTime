@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: jellytime-backend
+    restart: unless-stopped
+    environment:
+      - PORT=3001
+      - DB_PATH=/data/jellytime.db
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production-please}
+      - NODE_ENV=production
+      - JELLYFIN_URL=${JELLYFIN_URL:-}
+      - JELLYFIN_API_KEY=${JELLYFIN_API_KEY:-}
+    volumes:
+      - jellytime-data:/data
+    networks:
+      - jellytime-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  frontend:
+    build: ./frontend
+    container_name: jellytime-frontend
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - jellytime-net
+
+volumes:
+  jellytime-data:
+
+networks:
+  jellytime-net:
+    driver: bridge

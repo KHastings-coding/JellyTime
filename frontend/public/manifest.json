@@ -1,0 +1,29 @@
+{
+  "short_name": "JellyTime",
+  "name": "JellyTime – Jellyfin Screen Time",
+  "description": "Screen time manager for Jellyfin with chore rewards",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#7c3aed",
+  "background_color": "#0f0f1a",
+  "orientation": "portrait"
+}
