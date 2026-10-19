@@ -183,6 +183,8 @@ export function migrateToV2(db) {
       WHERE daily_limit_minutes IS NULL`);
 
     // TZ used to be misconfigured (UTC+7), so a row dated after today can exist: fold it in.
+    // Orphan future rows (child deleted) cannot be folded under the FK; drop them.
+    db.prepare('DELETE FROM time_ledger WHERE date > ? AND child_id NOT IN (SELECT id FROM children)').run(date);
     for (const row of db.prepare('SELECT * FROM time_ledger WHERE date > ?').all(date)) {
       db.prepare(`
         INSERT INTO time_ledger (child_id, date, minutes_used, bonus_minutes, daily_limit_minutes) VALUES (?,?,?,?,?)
@@ -195,9 +197,10 @@ export function migrateToV2(db) {
 
     db.prepare('UPDATE time_ledger SET settled=1, carry_out_minutes=0 WHERE date < ?').run(date);
 
-    for (const row of db.prepare('SELECT * FROM time_ledger WHERE date=? AND bonus_minutes != 0').all(date)) {
+    for (const row of db.prepare(`SELECT * FROM time_ledger WHERE date=? AND bonus_minutes != 0
+      AND child_id IN (SELECT id FROM children)`).all(date)) {
       db.prepare(`INSERT INTO time_adjustments (child_id, date, minutes, kind, reason, icon)
-        VALUES (?,?,?,'grant','Earlier today','🎁')`).run(row.child_id, date, row.bonus_minutes);
+        VALUES (?,?,?,'carryover','Earlier today','🎁')`).run(row.child_id, date, row.bonus_minutes);
     }
 
     db.exec(`INSERT OR IGNORE INTO template_assignments (template_type, template_id, child_id)

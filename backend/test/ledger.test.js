@@ -72,7 +72,8 @@ test('settling is idempotent and a backwards day key reuses the stored carry', (
   assert.equal(d1.settled, 1);
   assert.equal(d1.carry_out_minutes, 15);
   // Timezone change moves "today" back to D2: no crash, D1 is not re-settled
-  applyAdjustment(db, { childId: kid.id, minutes: 5, kind: 'grant', reason: 'late', date: D1 });
+  assert.throws(() => applyAdjustment(db, { childId: kid.id, minutes: 5, kind: 'grant', reason: 'late', date: D1 }),
+    e => e instanceof HttpError && e.status === 400);
   const d2 = ensureDay(db, kid, D2);
   assert.equal(d2.carry_in_minutes, 15);
 });
@@ -100,7 +101,8 @@ test("undo: today's grant/removal only, never chores or past days", () => {
   const chore = applyAdjustment(db, { childId: kid.id, minutes: 10, kind: 'chore', reason: 'x', date: t });
   assert.throws(() => undoAdjustment(db, chore.id), e => e instanceof HttpError && e.status === 400);
 
-  const old = applyAdjustment(db, { childId: kid.id, minutes: 10, kind: 'grant', reason: 'x', date: addDays(t, -1) });
+  const old = { id: Number(db.prepare(`INSERT INTO time_adjustments (child_id, date, minutes, kind, reason)
+    VALUES (?,?,10,'grant','x')`).run(kid.id, addDays(t, -1)).lastInsertRowid) };
   assert.throws(() => undoAdjustment(db, old.id), e => e instanceof HttpError && e.status === 400);
   assert.throws(() => undoAdjustment(db, 999999), e => e instanceof HttpError && e.status === 404);
 });
@@ -152,11 +154,46 @@ test('migrateToV2 settles history, folds future rows, keeps today and assigns ch
   assert.equal(rows[1].bonus_minutes, 35);
   assert.equal(rows[1].daily_limit_minutes, 30);
   const adj = db.prepare('SELECT * FROM time_adjustments WHERE child_id=?').all(kid.id);
-  assert.deepEqual(adj.map(a => [a.date, a.minutes, a.kind, a.reason]), [[t, 35, 'grant', 'Earlier today']]);
+  assert.deepEqual(adj.map(a => [a.date, a.minutes, a.kind, a.reason]), [[t, 35, 'carryover', 'Earlier today']]);
   const chores = db.prepare('SELECT COUNT(*) c FROM chore_templates WHERE active=1').get().c;
   const assigned = db.prepare("SELECT COUNT(*) c FROM template_assignments WHERE template_type='chore' AND child_id=?").get(kid.id).c;
   assert.equal(assigned, chores);
   assert.equal(db.prepare("SELECT value FROM settings WHERE key='schema_version'").get().value, '2');
   migrateToV2(db); // second run is a no-op
   assert.equal(db.prepare('SELECT COUNT(*) c FROM time_adjustments WHERE child_id=?').get(kid.id).c, 1);
+});
+
+test('applyAdjustment refuses past days once a later row exists', () => {
+  const db = freshDb();
+  const kid = addChild(db);
+  const t = today(db);
+  ensureDay(db, kid, t);
+  const before = childSummary(db, kid, t).available;
+  assert.throws(() => applyAdjustment(db, { childId: kid.id, minutes: 5, kind: 'grant', reason: 'x', date: addDays(t, -1) }),
+    e => e instanceof HttpError && e.status === 400);
+  assert.equal(childSummary(db, kid, t).available, before);
+});
+
+test('migrateToV2 drops orphan future rows instead of crashing', () => {
+  const db = freshDb();
+  db.pragma('foreign_keys = ON');
+  const kid = addChild(db);
+  const t = today(db);
+  db.prepare("UPDATE settings SET value='1' WHERE key='schema_version'").run();
+  db.pragma('foreign_keys = OFF');
+  db.prepare('INSERT INTO time_ledger (child_id, date, minutes_used, bonus_minutes) VALUES (?,?,?,?)')
+    .run('ghost', addDays(t, 1), 5, 15);
+  db.pragma('foreign_keys = ON');
+  assert.doesNotThrow(() => migrateToV2(db));
+  assert.equal(db.prepare("SELECT COUNT(*) c FROM time_ledger WHERE child_id='ghost'").get().c, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) c FROM time_ledger WHERE child_id=?').get(kid.id).c, 0);
+});
+
+test('daily_left + banked equals remaining_minutes despite rounding', () => {
+  const db = freshDb();
+  const kid = addChild(db);
+  applyAdjustment(db, { childId: kid.id, minutes: 10.4, kind: 'grant', reason: 'x', date: D1 });
+  addUsage(db, kid, 19.6, D1);
+  const s = childSummary(db, kid, D1);
+  assert.equal(s.daily_left + s.banked, s.remaining_minutes);
 });

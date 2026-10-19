@@ -89,6 +89,9 @@ export function applyAdjustment(db, {
   const child = getChild(db, childId);
   if (!child) throw new HttpError(404, 'Child not found');
   return db.transaction(() => {
+    const existing = getRow(db, child.id, date);
+    const later = db.prepare('SELECT 1 FROM time_ledger WHERE child_id=? AND date>? LIMIT 1').get(child.id, date);
+    if (existing?.settled || later) throw new HttpError(400, "Can't change a day that has already ended");
     const row = ensureDay(db, child, date);
     const info = db.prepare(`INSERT INTO time_adjustments
       (child_id, date, minutes, kind, reason, icon, template_id, completion_id) VALUES (?,?,?,?,?,?,?,?)`)
@@ -130,7 +133,7 @@ export function childSummary(db, child, date = today(db)) {
     daily_left: Math.round(dailyLeft),
     carry_in: Math.round(carryIn),
     earned_today: Math.round(net),
-    banked: earned >= 0 ? Math.max(0, Math.round(available - dailyLeft)) : 0,
+    banked: earned >= 0 ? Math.max(0, Math.round(available) - Math.round(dailyLeft)) : 0,
     owed: earned < 0 ? Math.round(-earned) : 0,
     available: Math.round(available),
     minutes_used: Math.round(used),
