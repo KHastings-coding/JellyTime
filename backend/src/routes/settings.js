@@ -3,6 +3,7 @@ import { getDb } from '../db.js';
 import { requireAuth } from './auth.js';
 import { testConnection } from '../jellyfin.js';
 import { scheduleReset } from '../poller.js';
+import { getClockSettings, isValidResetTime, isValidTimezone } from '../clock.js';
 
 const router = express.Router();
 
@@ -17,6 +18,9 @@ router.get('/', requireAuth, (req, res) => {
       settings[r.key] = r.value;
     }
   }
+  const clock = getClockSettings(db);
+  settings.timezone = clock.timezone;
+  settings.reset_time = clock.resetTime;
   res.json(settings);
 });
 
@@ -27,9 +31,18 @@ function requireAuthIfConfigured(req, res, next) {
   return requireAuth(req, res, next);
 }
 
+const provided = v => v !== undefined && v !== null && v !== '';
+
 router.post('/', requireAuthIfConfigured, (req, res) => {
   const db = getDb();
-  const { jellyfin_url, jellyfin_api_key, local_login_enabled, reset_time } = req.body;
+  const { jellyfin_url, jellyfin_api_key, local_login_enabled, reset_time, timezone } = req.body;
+
+  if (provided(reset_time) && !isValidResetTime(reset_time)) {
+    return res.status(400).json({ error: 'Reset time must be HH:MM (24-hour)' });
+  }
+  if (provided(timezone) && !isValidTimezone(timezone)) {
+    return res.status(400).json({ error: 'Unknown timezone' });
+  }
 
   const upsert = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)');
   if (jellyfin_url) upsert.run('jellyfin_url', jellyfin_url.replace(/\/$/, ''));
@@ -39,10 +52,9 @@ router.post('/', requireAuthIfConfigured, (req, res) => {
   if (typeof local_login_enabled === 'boolean') {
     upsert.run('local_login_enabled', local_login_enabled ? 'true' : 'false');
   }
-  if (reset_time) {
-    upsert.run('reset_time', reset_time);
-    scheduleReset();
-  }
+  if (provided(reset_time)) upsert.run('reset_time', reset_time);
+  if (provided(timezone)) upsert.run('timezone', timezone);
+  if (provided(reset_time) || provided(timezone)) scheduleReset();
 
   res.json({ ok: true });
 });

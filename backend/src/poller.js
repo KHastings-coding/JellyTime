@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import { getDb } from './db.js';
+import { getClockSettings } from './clock.js';
 import { getActiveSessions, disableUser, enableUser } from './jellyfin.js';
 
 const POLL_INTERVAL_SECONDS = 30;
@@ -106,18 +107,21 @@ async function poll() {
 let resetJob = null;
 
 export function scheduleReset() {
-  if (resetJob) { resetJob.stop(); resetJob = null; }
+  stopReset();
   const db = getDb();
-  const t = db.prepare("SELECT value FROM settings WHERE key='reset_time'").get()?.value || '00:00';
-  const [h, m] = t.split(':');
-  console.log(`[JellyTime] Scheduling daily reset at ${t}`);
-  resetJob = cron.schedule(`0 ${parseInt(m)} ${parseInt(h)} * * *`, async () => {
-    console.log(`[JellyTime] Daily reset at ${t} — re-enabling all children`);
-    const db = getDb();
-    for (const child of db.prepare('SELECT * FROM children').all()) {
+  const { timezone, resetTime } = getClockSettings(db);
+  const [h, m] = resetTime.split(':').map(Number);
+  console.log(`[JellyTime] Scheduling daily reset at ${resetTime} (${timezone})`);
+  resetJob = cron.schedule(`0 ${m} ${h} * * *`, async () => {
+    console.log(`[JellyTime] Daily reset at ${resetTime} — re-enabling all children`);
+    for (const child of getDb().prepare('SELECT * FROM children').all()) {
       await enableUser(child.jellyfin_user_id);
     }
-  });
+  }, { timezone });
+}
+
+export function stopReset() {
+  if (resetJob) { resetJob.stop(); resetJob = null; }
 }
 
 export function startPolling() {
