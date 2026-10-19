@@ -14,16 +14,21 @@ export function authHeaders() {
   return { Authorization: `Bearer ${jwt.sign({ id: 'test-parent', username: 'parent' }, 'test-secret')}` };
 }
 
+export function childToken(childId) {
+  return jwt.sign({ childId, role: 'child' }, 'test-secret');
+}
+
 export async function startApp(mounts) {
   const app = express();
   app.use(express.json());
   for (const [path, router] of mounts) app.use(path, router);
   const server = await new Promise(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   const base = `http://127.0.0.1:${server.address().port}`;
-  async function call(method, path, body, { auth = true } = {}) {
+  async function call(method, path, body, { auth = true, token } = {}) {
+    const authHeader = token ? { Authorization: `Bearer ${token}` } : auth ? authHeaders() : {};
     const res = await fetch(base + path, {
       method,
-      headers: { 'Content-Type': 'application/json', ...(auth ? authHeaders() : {}) },
+      headers: { 'Content-Type': 'application/json', ...authHeader },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const text = await res.text();

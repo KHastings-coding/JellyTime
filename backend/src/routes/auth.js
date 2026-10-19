@@ -8,15 +8,19 @@ import { randomUUID } from 'crypto';
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'jellytime-secret-change-me';
 
+// Parent-only routes. Kid tokens (from /child-login, which needs only a child ID) are refused.
 export function requireAuth(req, res, next) {
   const auth = req.headers.authorization;
   if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+  let decoded;
   try {
-    req.user = jwt.verify(auth.slice(7), JWT_SECRET);
-    next();
+    decoded = jwt.verify(auth.slice(7), JWT_SECRET);
   } catch {
-    res.status(401).json({ error: 'Invalid token' });
+    return res.status(401).json({ error: 'Invalid token' });
   }
+  if (decoded.role === 'child') return res.status(403).json({ error: 'Parents only' });
+  req.user = decoded;
+  next();
 }
 
 // POST /api/auth/setup - first-time parent account creation
