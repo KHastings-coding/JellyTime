@@ -3,30 +3,36 @@ import { getDb } from '../db.js';
 import { requireAuth } from './auth.js';
 import { getUsers } from '../jellyfin.js';
 import { randomUUID } from 'crypto';
+import { HttpError, sendError } from '../httpError.js';
+import { childSummary, listAdjustments } from '../accounting.js';
+import { assignAllTemplatesToChild } from '../templates.js';
+import { today } from '../clock.js';
 
 const router = express.Router();
 
-// GET /api/children - list all managed children
+function parseChildOptions(body) {
+  const cap = body.bank_cap_minutes;
+  const bank_cap_minutes = cap === null || cap === undefined || cap === '' ? null : Number(cap);
+  if (bank_cap_minutes !== null && (!Number.isInteger(bank_cap_minutes) || bank_cap_minutes < 0 || bank_cap_minutes > 10000)) {
+    throw new HttpError(400, 'Bank cap must be blank or a whole number of minutes (0–10000)');
+  }
+  const debt_mode = body.debt_mode ?? 'carry';
+  if (!['carry', 'forgive'].includes(debt_mode)) throw new HttpError(400, "debt_mode must be 'carry' or 'forgive'");
+  return { bank_cap_minutes, debt_mode };
+}
+
+function parseDailyLimit(value, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0 || n > 1440) throw new HttpError(400, 'Daily limit must be 0–1440 minutes');
+  return n;
+}
+
+// GET /api/children - list all managed children with today's balance
 router.get('/', (req, res) => {
   const db = getDb();
   const children = db.prepare('SELECT * FROM children ORDER BY name').all();
-  const today = new Date().toISOString().slice(0, 10);
-
-  const result = children.map(child => {
-    const ledger = db.prepare('SELECT * FROM time_ledger WHERE child_id=? AND date=?').get(child.id, today);
-    const minutesUsed = ledger?.minutes_used || 0;
-    const bonusMinutes = ledger?.bonus_minutes || 0;
-    const totalAllowed = child.daily_limit_minutes + bonusMinutes;
-    return {
-      ...child,
-      minutes_used: Math.round(minutesUsed),
-      bonus_minutes: bonusMinutes,
-      total_allowed: totalAllowed,
-      remaining_minutes: Math.max(0, Math.round(totalAllowed - minutesUsed)),
-    };
-  });
-
-  res.json(result);
+  res.json(children.map(child => ({ ...child, ...childSummary(db, child) })));
 });
 
 // GET /api/children/:id/status - for child dashboard
@@ -35,56 +41,63 @@ router.get('/:id/status', (req, res) => {
   const child = db.prepare('SELECT * FROM children WHERE id=?').get(req.params.id);
   if (!child) return res.status(404).json({ error: 'Not found' });
 
-  const today = new Date().toISOString().slice(0, 10);
-  const ledger = db.prepare('SELECT * FROM time_ledger WHERE child_id=? AND date=?').get(child.id, today);
-  const minutesUsed = ledger?.minutes_used || 0;
-  const bonusMinutes = ledger?.bonus_minutes || 0;
-  const totalAllowed = child.daily_limit_minutes + bonusMinutes;
-  const remaining = Math.max(0, totalAllowed - minutesUsed);
-
-  const pendingChores = db.prepare(`
-    SELECT cc.*, ct.name, ct.icon, ct.reward_minutes
-    FROM chore_completions cc
-    JOIN chore_templates ct ON cc.chore_id = ct.id
-    WHERE cc.child_id=? AND cc.date=? AND cc.status='pending'
-  `).all(child.id, today);
+  const summary = childSummary(db, child);
+  const pendingChores = db.prepare(
+    "SELECT COUNT(*) as c FROM chore_completions WHERE child_id=? AND date=? AND status='pending'"
+  ).get(child.id, summary.date).c;
 
   res.json({
     id: child.id,
     name: child.name,
     avatar_emoji: child.avatar_emoji,
-    daily_limit_minutes: child.daily_limit_minutes,
-    minutes_used: Math.round(minutesUsed),
-    bonus_minutes: bonusMinutes,
-    total_allowed: totalAllowed,
-    remaining_minutes: Math.round(remaining),
-    pending_chores: pendingChores.length,
+    bank_cap_minutes: child.bank_cap_minutes,
+    debt_mode: child.debt_mode,
+    ...summary,
+    pending_chores: pendingChores,
+    recent: listAdjustments(db, child.id, { days: 7, limit: 10 }),
   });
 });
 
 // POST /api/children - add a child
 router.post('/', requireAuth, (req, res) => {
-  const db = getDb();
-  const { jellyfin_user_id, name, avatar_emoji, daily_limit_minutes } = req.body;
-  if (!jellyfin_user_id || !name) return res.status(400).json({ error: 'jellyfin_user_id and name required' });
+  try {
+    const db = getDb();
+    const { jellyfin_user_id, name, avatar_emoji } = req.body;
+    if (!jellyfin_user_id || !name) return res.status(400).json({ error: 'jellyfin_user_id and name required' });
+    const { bank_cap_minutes, debt_mode } = parseChildOptions(req.body);
+    const daily = parseDailyLimit(req.body.daily_limit_minutes, 60);
 
-  const id = randomUUID();
-  db.prepare(`
-    INSERT INTO children (id, jellyfin_user_id, name, avatar_emoji, daily_limit_minutes)
-    VALUES (?,?,?,?,?)
-  `).run(id, jellyfin_user_id, name, avatar_emoji || '🧒', daily_limit_minutes || 60);
-
-  res.json({ id });
+    const id = randomUUID();
+    db.transaction(() => {
+      db.prepare(`
+        INSERT INTO children (id, jellyfin_user_id, name, avatar_emoji, daily_limit_minutes, bank_cap_minutes, debt_mode)
+        VALUES (?,?,?,?,?,?,?)
+      `).run(id, jellyfin_user_id, name, avatar_emoji || '🧒', daily, bank_cap_minutes, debt_mode);
+      assignAllTemplatesToChild(db, id);
+    })();
+    res.json({ id });
+  } catch (e) { sendError(res, e); }
 });
 
 // PUT /api/children/:id - update child settings
 router.put('/:id', requireAuth, (req, res) => {
-  const db = getDb();
-  const { name, avatar_emoji, daily_limit_minutes } = req.body;
-  db.prepare(`
-    UPDATE children SET name=?, avatar_emoji=?, daily_limit_minutes=? WHERE id=?
-  `).run(name, avatar_emoji, daily_limit_minutes, req.params.id);
-  res.json({ ok: true });
+  try {
+    const db = getDb();
+    const child = db.prepare('SELECT * FROM children WHERE id=?').get(req.params.id);
+    if (!child) return res.status(404).json({ error: 'Not found' });
+    const { name, avatar_emoji } = req.body;
+    const { bank_cap_minutes, debt_mode } = parseChildOptions(req.body);
+    const daily = parseDailyLimit(req.body.daily_limit_minutes, child.daily_limit_minutes);
+    db.transaction(() => {
+      db.prepare(`
+        UPDATE children SET name=?, avatar_emoji=?, daily_limit_minutes=?, bank_cap_minutes=?, debt_mode=? WHERE id=?
+      `).run(name ?? child.name, avatar_emoji ?? child.avatar_emoji, daily, bank_cap_minutes, debt_mode, child.id);
+      // A new limit applies from today, as it did before rollover existed
+      db.prepare('UPDATE time_ledger SET daily_limit_minutes=? WHERE child_id=? AND date=? AND settled=0')
+        .run(daily, child.id, today(db));
+    })();
+    res.json({ ok: true });
+  } catch (e) { sendError(res, e); }
 });
 
 // DELETE /api/children/:id
