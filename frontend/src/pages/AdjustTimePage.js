@@ -16,6 +16,8 @@ export default function AdjustTimePage() {
   const [custom, setCustom] = useState({ minutes:'', reason:'' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   const load = useCallback(async () => {
     const [all, r, adj] = await Promise.all([
@@ -28,16 +30,28 @@ export default function AdjustTimePage() {
     setChanges(adj.data.adjustments);
   }, [childId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    setLoading(true);
+    setLoadError('');
+    load()
+      .catch(e => setLoadError(e.response?.data?.error || ''))
+      .finally(() => setLoading(false));
+  }, [load]);
 
   async function run(action) {
     setError('');
     setBusy(true);
-    let ok = false;
-    try { await action(); ok = true; await load(); }
-    catch (e) { setError(e.response?.data?.error || 'Something went wrong'); }
+    try { await action(); }
+    catch (e) {
+      setError(e.response?.data?.error || 'Something went wrong');
+      setBusy(false);
+      return false;
+    }
+    // The change is saved from here on; a failed refresh must not look like a failed save.
+    try { await load(); }
+    catch { setError("Saved, but couldn't refresh. Reload the page."); }
     setBusy(false);
-    return ok;
+    return true;
   }
 
   const adjust = body => run(() => api.post('/time/adjust', { childId, ...body }));
@@ -54,7 +68,19 @@ export default function AdjustTimePage() {
     if (ok) setCustom({ minutes:'', reason:'' });
   }
 
-  if (!child) return <div className="page" style={{ display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',fontSize:'2rem' }}>⏳</div>;
+  if (loading) return <div className="page" style={{ display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',fontSize:'2rem' }}>⏳</div>;
+
+  if (!child) return (
+    <div className="page">
+      <nav className="nav">
+        <Link to="/parent" className="btn btn-ghost" style={{ padding:'0.4rem 0.75rem',fontSize:'0.85rem' }}>← Dashboard</Link>
+      </nav>
+      <div className="card" style={{ maxWidth:600,margin:'1.5rem auto',textAlign:'center' }}>
+        <h3 style={{ fontWeight:800,marginBottom:'0.5rem' }}>Couldn't load this kid</h3>
+        {loadError && <p style={{ color:'#ef4444',fontSize:'0.9rem' }}>{loadError}</p>}
+      </div>
+    </div>
+  );
 
   return (
     <div className="page">
