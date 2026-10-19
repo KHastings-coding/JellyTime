@@ -3,8 +3,7 @@ import { getDb } from '../db.js';
 import { requireAuth } from './auth.js';
 import { randomUUID } from 'crypto';
 import { sendPushToAllParents } from './push.js';
-import { today } from '../clock.js';
-import { applyAdjustment } from '../accounting.js';
+import { applyAdjustment, currentDay } from '../accounting.js';
 import { sendError } from '../httpError.js';
 import {
   parseMinutes, validateAssignments, setAssignments, assignToAllChildren, getAssignments, effectiveMinutes,
@@ -110,7 +109,7 @@ router.get('/pending', requireAuth, (req, res) => {
 // GET /api/chores/child/:childId - chores for a specific child today
 router.get('/child/:childId', (req, res) => {
   const db = getDb();
-  const date = today(db);
+  const date = currentDay(db, { id: req.params.childId });
   const templates = db.prepare('SELECT * FROM chore_templates WHERE active=1').all();
 
   // Get today's completions for this child
@@ -141,10 +140,9 @@ router.post('/submit', (req, res) => {
   try {
     const db = getDb();
     const { childId, choreId } = req.body;
-    const date = today(db);
-
     const child = db.prepare('SELECT * FROM children WHERE id=?').get(childId);
     if (!child) return res.status(404).json({ error: 'Child not found' });
+    const date = currentDay(db, child);
 
     const chore = db.prepare('SELECT * FROM chore_templates WHERE id=? AND active=1').get(choreId);
     if (!chore) return res.status(404).json({ error: 'Chore not found' });

@@ -29,6 +29,7 @@ router.post('/templates', requireAuth, (req, res) => {
     const db = getDb();
     const { name, icon, minutes, assignments } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'Name is required' });
+    if (name.trim().length > 200) return res.status(400).json({ error: 'Name must be 200 characters or fewer' });
     const m = parseMinutes(minutes, 'Minutes');
     const list = assignments === undefined ? null : validateAssignments(db, assignments);
     const id = randomUUID();
@@ -50,6 +51,7 @@ router.put('/templates/:id', requireAuth, (req, res) => {
     if (!existing) return res.status(404).json({ error: 'Not found' });
     const { name, icon, minutes, assignments } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'Name is required' });
+    if (name.trim().length > 200) return res.status(400).json({ error: 'Name must be 200 characters or fewer' });
     const m = parseMinutes(minutes, 'Minutes');
     const list = assignments === undefined ? null : validateAssignments(db, assignments);
     db.transaction(() => {

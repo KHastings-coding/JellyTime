@@ -22,6 +22,13 @@ function syncJellyfin(child, summary) {
   update(child.jellyfin_user_id).catch(console.error);
 }
 
+const MAX_REASON = 200;
+
+function checkReason(reason) {
+  if (reason.length > MAX_REASON) throw new HttpError(400, `Reason must be ${MAX_REASON} characters or fewer`);
+  return reason;
+}
+
 function adjust(req, res) {
   try {
     const db = getDb();
@@ -29,7 +36,7 @@ function adjust(req, res) {
     const child = requireChild(db, childId);
     let entry;
     if (kind === 'grant') {
-      entry = { minutes: parseMinutes(minutes, 'Minutes'), reason: reason?.trim() || 'Bonus from parent', icon: '🎁' };
+      entry = { minutes: parseMinutes(minutes, 'Minutes'), reason: checkReason(reason?.trim() || 'Bonus from parent'), icon: '🎁' };
     } else if (kind === 'removal' && templateId) {
       const t = db.prepare('SELECT * FROM removal_templates WHERE id=? AND active=1').get(templateId);
       const m = t ? effectiveMinutes(db, 'removal', t.id, child.id, t.minutes) : null;
@@ -37,7 +44,7 @@ function adjust(req, res) {
       entry = { minutes: -m, reason: t.name, icon: t.icon, templateId: t.id };
     } else if (kind === 'removal') {
       if (!reason?.trim()) throw new HttpError(400, 'A reason is required when removing time');
-      entry = { minutes: -parseMinutes(minutes, 'Minutes'), reason: reason.trim(), icon: '⚠️' };
+      entry = { minutes: -parseMinutes(minutes, 'Minutes'), reason: checkReason(reason.trim()), icon: '⚠️' };
     } else {
       throw new HttpError(400, "kind must be 'grant' or 'removal'");
     }

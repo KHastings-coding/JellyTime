@@ -4,9 +4,8 @@ import { requireAuth } from './auth.js';
 import { getUsers } from '../jellyfin.js';
 import { randomUUID } from 'crypto';
 import { HttpError, sendError } from '../httpError.js';
-import { childSummary, listAdjustments } from '../accounting.js';
+import { childSummary, listAdjustments, currentDay } from '../accounting.js';
 import { assignAllTemplatesToChild } from '../templates.js';
-import { today } from '../clock.js';
 
 const router = express.Router();
 
@@ -107,7 +106,7 @@ router.put('/:id', requireAuth, (req, res) => {
       `).run(name !== undefined ? name.trim() : child.name, avatar_emoji ?? child.avatar_emoji, daily, bank_cap_minutes, debt_mode, child.id);
       // A new limit applies from today, as it did before rollover existed
       db.prepare('UPDATE time_ledger SET daily_limit_minutes=? WHERE child_id=? AND date=? AND settled=0')
-        .run(daily, child.id, today(db));
+        .run(daily, child.id, currentDay(db, child));
     })();
     res.json({ ok: true });
   } catch (e) { sendError(res, e); }
@@ -115,9 +114,18 @@ router.put('/:id', requireAuth, (req, res) => {
 
 // DELETE /api/children/:id
 router.delete('/:id', requireAuth, (req, res) => {
-  const db = getDb();
-  db.prepare('DELETE FROM children WHERE id=?').run(req.params.id);
-  res.json({ ok: true });
+  try {
+    const db = getDb();
+    const child = db.prepare('SELECT id FROM children WHERE id=?').get(req.params.id);
+    if (!child) throw new HttpError(404, 'Not found');
+    db.transaction(() => {
+      for (const table of ['template_assignments', 'time_adjustments', 'time_ledger', 'chore_completions', 'sessions']) {
+        db.prepare(`DELETE FROM ${table} WHERE child_id=?`).run(child.id);
+      }
+      db.prepare('DELETE FROM children WHERE id=?').run(child.id);
+    })();
+    res.json({ ok: true });
+  } catch (e) { sendError(res, e); }
 });
 
 // GET /api/children/jellyfin-users - fetch Jellyfin user list for setup

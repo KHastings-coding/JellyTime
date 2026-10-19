@@ -182,17 +182,15 @@ export function migrateToV2(db) {
       (SELECT c.daily_limit_minutes FROM children c WHERE c.id = time_ledger.child_id)
       WHERE daily_limit_minutes IS NULL`);
 
-    // TZ used to be misconfigured (UTC+7), so a row dated after today can exist: fold it in.
-    // Orphan future rows (child deleted) cannot be folded under the FK; drop them.
+    // TZ used to be misconfigured (UTC+7), so a row dated after today can exist. That row is the
+    // kid's real "today"; the row dated today is stale (pre-v2 days carry nothing), so it is dropped,
+    // not summed. Orphan future rows (child deleted) cannot be re-dated under the FK; drop them.
     db.prepare('DELETE FROM time_ledger WHERE date > ? AND child_id NOT IN (SELECT id FROM children)').run(date);
-    for (const row of db.prepare('SELECT * FROM time_ledger WHERE date > ?').all(date)) {
-      db.prepare(`
-        INSERT INTO time_ledger (child_id, date, minutes_used, bonus_minutes, daily_limit_minutes) VALUES (?,?,?,?,?)
-        ON CONFLICT(child_id, date) DO UPDATE SET
-          minutes_used = minutes_used + excluded.minutes_used,
-          bonus_minutes = bonus_minutes + excluded.bonus_minutes
-      `).run(row.child_id, date, row.minutes_used, row.bonus_minutes, row.daily_limit_minutes);
-      db.prepare('DELETE FROM time_ledger WHERE id=?').run(row.id);
+    for (const { child_id: childId } of db.prepare('SELECT DISTINCT child_id FROM time_ledger WHERE date > ?').all(date)) {
+      const latest = db.prepare('SELECT id FROM time_ledger WHERE child_id=? AND date > ? ORDER BY date DESC LIMIT 1')
+        .get(childId, date);
+      db.prepare('DELETE FROM time_ledger WHERE child_id=? AND date >= ? AND id != ?').run(childId, date, latest.id);
+      db.prepare('UPDATE time_ledger SET date=? WHERE id=?').run(date, latest.id);
     }
 
     db.prepare('UPDATE time_ledger SET settled=1, carry_out_minutes=0 WHERE date < ?').run(date);

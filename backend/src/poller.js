@@ -1,8 +1,8 @@
 import cron from 'node-cron';
 import { getDb } from './db.js';
 import * as jellyfin from './jellyfin.js';
-import { getClockSettings, today, DEFAULT_TIMEZONE } from './clock.js';
-import { addUsage, childSummary } from './accounting.js';
+import { getClockSettings, DEFAULT_TIMEZONE } from './clock.js';
+import { addUsage, childSummary, currentDay } from './accounting.js';
 
 const POLL_INTERVAL_SECONDS = 30;
 const activeTracking = new Map(); // childId -> { startedAt }
@@ -14,9 +14,9 @@ export async function poll(jf = jellyfin, now = Date.now()) {
 
   const sessions = await jf.getActiveSessions();
   const playing = new Set(sessions.filter(s => s.NowPlayingItem && s.UserId).map(s => s.UserId));
-  const date = today(db, new Date(now));
 
   for (const child of children) {
+    const date = currentDay(db, child, new Date(now));
     const tracking = activeTracking.get(child.id);
     if (playing.has(child.jellyfin_user_id)) {
       if (tracking) addUsage(db, child, (now - tracking.startedAt) / 60000, date);

@@ -46,8 +46,16 @@ function settleRow(db, child, row) {
   return carry;
 }
 
+// The kid's current day: today, unless a later row already exists (the timezone or
+// reset time moved "today" backwards). A kid's day never moves back onto a settled day.
+export function currentDay(db, child, now = new Date()) {
+  const t = today(db, now);
+  const latest = db.prepare('SELECT MAX(date) AS d FROM time_ledger WHERE child_id=?').get(child.id)?.d;
+  return latest && latest > t ? latest : t;
+}
+
 // The kid's ledger row for `date`, creating it — and settling every earlier day — if needed.
-export function ensureDay(db, child, date = today(db)) {
+export function ensureDay(db, child, date = currentDay(db, child)) {
   const existing = getRow(db, child.id, date);
   if (existing) return existing;
   return db.transaction(() => {
@@ -72,23 +80,24 @@ export function ensureDay(db, child, date = today(db)) {
   })();
 }
 
-export function addUsage(db, child, minutes, date = today(db)) {
+export function addUsage(db, child, minutes, date = currentDay(db, child)) {
   const row = ensureDay(db, child, date);
   db.prepare('UPDATE time_ledger SET minutes_used = minutes_used + ?, last_updated = unixepoch() WHERE id=?')
     .run(minutes, row.id);
 }
 
-export function resetUsage(db, child, date = today(db)) {
+export function resetUsage(db, child, date = currentDay(db, child)) {
   const row = ensureDay(db, child, date);
   db.prepare('UPDATE time_ledger SET minutes_used = 0, last_updated = unixepoch() WHERE id=?').run(row.id);
 }
 
 export function applyAdjustment(db, {
-  childId, minutes, kind, reason = null, icon = null, templateId = null, completionId = null, date = today(db),
+  childId, minutes, kind, reason = null, icon = null, templateId = null, completionId = null, date,
 }) {
   const child = getChild(db, childId);
   if (!child) throw new HttpError(404, 'Child not found');
   return db.transaction(() => {
+    if (date === undefined) date = currentDay(db, child);
     const existing = getRow(db, child.id, date);
     const later = db.prepare('SELECT 1 FROM time_ledger WHERE child_id=? AND date>? LIMIT 1').get(child.id, date);
     if (existing?.settled || later) throw new HttpError(400, "Can't change a day that has already ended");
@@ -108,7 +117,7 @@ export function undoAdjustment(db, adjustmentId) {
   const adj = db.prepare('SELECT * FROM time_adjustments WHERE id=?').get(adjustmentId);
   if (!adj) throw new HttpError(404, 'Change not found');
   if (!UNDOABLE_KINDS.includes(adj.kind)) throw new HttpError(400, 'Chore rewards cannot be undone here');
-  if (adj.date !== today(db)) throw new HttpError(400, "Only today's changes can be undone");
+  if (adj.date !== currentDay(db, { id: adj.child_id })) throw new HttpError(400, "Only today's changes can be undone");
   db.transaction(() => {
     db.prepare('DELETE FROM time_adjustments WHERE id=?').run(adj.id);
     db.prepare('UPDATE time_ledger SET bonus_minutes = bonus_minutes - ? WHERE child_id=? AND date=?')
@@ -117,7 +126,7 @@ export function undoAdjustment(db, adjustmentId) {
   return adj;
 }
 
-export function childSummary(db, child, date = today(db)) {
+export function childSummary(db, child, date = currentDay(db, child)) {
   const row = ensureDay(db, child, date);
   const daily = row.daily_limit_minutes ?? child.daily_limit_minutes;
   const carryIn = row.carry_in_minutes ?? 0;
@@ -145,7 +154,7 @@ export function childSummary(db, child, date = today(db)) {
 }
 
 export function listAdjustments(db, childId, { days = 7, limit = 100 } = {}) {
-  const since = addDays(today(db), -(Math.max(1, days) - 1));
+  const since = addDays(currentDay(db, { id: childId }), -(Math.max(1, days) - 1));
   return db.prepare(`SELECT * FROM time_adjustments WHERE child_id=? AND date >= ?
     ORDER BY created_at DESC, id DESC LIMIT ?`).all(childId, since, limit);
 }

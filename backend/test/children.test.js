@@ -94,3 +94,28 @@ test('PUT rejects a blank name and keeps the name when omitted', async () => {
   assert.equal((await app.call('PUT', `/api/children/${r.body.id}`, { avatar_emoji: '🐱' })).status, 200);
   assert.match(db.prepare('SELECT name FROM children WHERE id=?').get(r.body.id).name, /^Kid /);
 });
+
+test('removing a kid deletes their history and assignments; other kids are untouched', async () => {
+  db.prepare("INSERT OR IGNORE INTO removal_templates (id, name, minutes) VALUES ('rem-delete-test','Shouting',5)").run();
+  const gone = (await create()).body.id;
+  const kept = (await create()).body.id;
+  db.prepare("INSERT OR IGNORE INTO chore_templates (id, name, reward_minutes) VALUES ('chore-delete-test','Dishes',10)").run();
+  const chore = { id: 'chore-delete-test' };
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  db.prepare('INSERT INTO time_ledger (child_id, date, minutes_used, bonus_minutes) VALUES (?,?,5,0)').run(gone, yesterday);
+  applyAdjustment(db, { childId: gone, minutes: 10, kind: 'grant', reason: 'x' });
+  db.prepare("INSERT INTO chore_completions (child_id, chore_id, reward_minutes, date) VALUES (?,?,10,?)").run(gone, chore.id, yesterday);
+  db.prepare('INSERT INTO sessions (child_id, started_at) VALUES (?, unixepoch())').run(gone);
+  db.prepare("INSERT OR IGNORE INTO template_assignments (template_type, template_id, child_id) VALUES ('removal','rem-delete-test',?)").run(gone);
+  const keptAssignments = db.prepare('SELECT COUNT(*) c FROM template_assignments WHERE child_id=?').get(kept).c;
+  assert.ok(keptAssignments > 0);
+
+  const r = await app.call('DELETE', `/api/children/${gone}`);
+  assert.equal(r.status, 200);
+  for (const table of ['children', 'time_ledger', 'time_adjustments', 'chore_completions', 'sessions', 'template_assignments']) {
+    const col = table === 'children' ? 'id' : 'child_id';
+    assert.equal(db.prepare(`SELECT COUNT(*) c FROM ${table} WHERE ${col}=?`).get(gone).c, 0, table);
+  }
+  assert.equal(db.prepare('SELECT COUNT(*) c FROM template_assignments WHERE child_id=?').get(kept).c, keptAssignments);
+  assert.equal((await app.call('DELETE', `/api/children/${gone}`)).status, 404);
+});

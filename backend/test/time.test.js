@@ -98,3 +98,20 @@ test('removal template validation', async () => {
   assert.equal((await app.call('POST', '/api/removals/templates', { name: 'x', minutes: 0 })).status, 400);
   assert.equal((await app.call('PUT', '/api/removals/templates/nope', { name: 'x', minutes: 5 })).status, 404);
 });
+
+test('reasons and removal template names are limited to 200 characters', async () => {
+  const kid = addChild(db);
+  const long = 'x'.repeat(201);
+  const r = await app.call('POST', '/api/time/adjust', { childId: kid.id, kind: 'removal', minutes: 5, reason: long });
+  assert.equal(r.status, 400);
+  assert.equal(r.body.error, 'Reason must be 200 characters or fewer');
+  assert.equal((await app.call('POST', '/api/time/adjust', { childId: kid.id, kind: 'grant', minutes: 5, reason: long })).status, 400);
+  const padded = `  ${'y'.repeat(200)}  `;
+  assert.equal((await app.call('POST', '/api/time/adjust', { childId: kid.id, kind: 'grant', minutes: 5, reason: padded })).status, 200);
+
+  const create = await app.call('POST', '/api/removals/templates', { name: long, minutes: 5, assignments: [] });
+  assert.equal(create.status, 400);
+  const ok = await app.call('POST', '/api/removals/templates', { name: 'Fine', minutes: 5, assignments: [] });
+  assert.equal(ok.status, 200);
+  assert.equal((await app.call('PUT', `/api/removals/templates/${ok.body.id}`, { name: long, minutes: 5, assignments: [] })).status, 400);
+});

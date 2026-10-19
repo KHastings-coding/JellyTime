@@ -67,7 +67,7 @@ export default function ChildDashboard() {
     <div className="page" style={{ display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',fontSize:'2rem' }}>⏳</div>
   );
 
-  const pct = status.total_allowed > 0 ? (status.minutes_used / status.total_allowed) * 100 : 0;
+  const pct = status.pct_used ?? 0; // from the backend; 100 when debt wipes out the allotment
 
   return (
     <div className="page">

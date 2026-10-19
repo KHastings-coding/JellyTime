@@ -4,7 +4,7 @@ import Database from 'better-sqlite3';
 import { initDb, migrateToV2 } from '../src/db.js';
 import { today, addDays } from '../src/clock.js';
 import {
-  ensureDay, addUsage, applyAdjustment, undoAdjustment, resetUsage, childSummary, listAdjustments,
+  ensureDay, addUsage, applyAdjustment, undoAdjustment, resetUsage, childSummary, listAdjustments, currentDay,
 } from '../src/accounting.js';
 import { HttpError } from '../src/httpError.js';
 
@@ -132,7 +132,7 @@ test('listAdjustments returns the window newest first', () => {
   assert.equal(listAdjustments(db, kid.id, { days: 30 }).length, 3);
 });
 
-test('migrateToV2 settles history, folds future rows, keeps today and assigns chores', () => {
+test('migrateToV2 settles history, re-dates the future row to today, keeps today and assigns chores', () => {
   const db = freshDb();
   const kid = addChild(db);
   const t = today(db);
@@ -150,11 +150,13 @@ test('migrateToV2 settles history, folds future rows, keeps today and assigns ch
   assert.equal(rows[0].settled, 1);
   assert.equal(rows[0].carry_out_minutes, 0);
   assert.equal(rows[1].date, t);
-  assert.equal(rows[1].minutes_used, 15);
-  assert.equal(rows[1].bonus_minutes, 35);
+  // The future row IS today under the corrected TZ; the old "today" row is stale and dropped, not summed.
+  assert.equal(rows[1].minutes_used, 5);
+  assert.equal(rows[1].bonus_minutes, 15);
   assert.equal(rows[1].daily_limit_minutes, 30);
+  assert.equal(db.prepare('SELECT COUNT(*) c FROM time_ledger WHERE child_id=? AND date=?').get(kid.id, t).c, 1);
   const adj = db.prepare('SELECT * FROM time_adjustments WHERE child_id=?').all(kid.id);
-  assert.deepEqual(adj.map(a => [a.date, a.minutes, a.kind, a.reason]), [[t, 35, 'carryover', 'Earlier today']]);
+  assert.deepEqual(adj.map(a => [a.date, a.minutes, a.kind, a.reason]), [[t, 15, 'carryover', 'Earlier today']]);
   const chores = db.prepare('SELECT COUNT(*) c FROM chore_templates WHERE active=1').get().c;
   const assigned = db.prepare("SELECT COUNT(*) c FROM template_assignments WHERE template_type='chore' AND child_id=?").get(kid.id).c;
   assert.equal(assigned, chores);
@@ -196,4 +198,63 @@ test('daily_left + banked equals remaining_minutes despite rounding', () => {
   addUsage(db, kid, 19.6, D1);
   const s = childSummary(db, kid, D1);
   assert.equal(s.daily_left + s.banked, s.remaining_minutes);
+});
+
+test('migrateToV2 keeps only the latest of several future rows', () => {
+  const db = freshDb();
+  const kid = addChild(db);
+  const t = today(db);
+  db.prepare("UPDATE settings SET value='1' WHERE key='schema_version'").run();
+  const legacy = db.prepare('INSERT INTO time_ledger (child_id, date, minutes_used, bonus_minutes) VALUES (?,?,?,?)');
+  legacy.run(kid.id, addDays(t, 1), 7, 3);
+  legacy.run(kid.id, addDays(t, 2), 4, 9);
+  migrateToV2(db);
+  const rows = db.prepare('SELECT * FROM time_ledger WHERE child_id=? ORDER BY date').all(kid.id);
+  assert.deepEqual(rows.map(r => [r.date, r.minutes_used, r.bonus_minutes]), [[t, 4, 9]]);
+});
+
+test('a backwards day key never moves the current day back onto a settled day', () => {
+  const db = freshDb();
+  const kid = addChild(db);
+  const d1 = today(db), d2 = addDays(d1, 1); // D2 row exists although the clock says D1 (TZ/reset change)
+  ensureDay(db, kid, d1);
+  addUsage(db, kid, 10, d1);
+  ensureDay(db, kid, d2); // settles D1
+  addUsage(db, kid, 4, d2);
+  const d1Before = db.prepare('SELECT * FROM time_ledger WHERE child_id=? AND date=?').get(kid.id, d1);
+  assert.equal(d1Before.settled, 1);
+
+  assert.equal(currentDay(db, kid), d2);
+  assert.equal(ensureDay(db, kid).date, d2);
+  const s = childSummary(db, kid);
+  assert.equal(s.date, d2);
+  assert.equal(s.minutes_used, 4);
+  assert.equal(s.available, 26);
+
+  addUsage(db, kid, 6);
+  assert.equal(childSummary(db, kid, d2).minutes_used, 10);
+  resetUsage(db, kid);
+  assert.equal(childSummary(db, kid, d2).minutes_used, 0);
+
+  const { id, summary } = applyAdjustment(db, { childId: kid.id, minutes: 5, kind: 'grant', reason: 'x' });
+  assert.equal(summary.date, d2);
+  assert.equal(db.prepare('SELECT date FROM time_adjustments WHERE id=?').get(id).date, d2);
+  assert.deepEqual(listAdjustments(db, kid.id, { days: 1 }).map(a => a.id), [id]);
+  undoAdjustment(db, id);
+  assert.equal(childSummary(db, kid).bonus_minutes, 0);
+
+  // Explicit past dates stay strict
+  assert.throws(() => applyAdjustment(db, { childId: kid.id, minutes: 5, kind: 'grant', reason: 'x', date: d1 }),
+    e => e instanceof HttpError && e.status === 400);
+  const d1After = db.prepare('SELECT * FROM time_ledger WHERE child_id=? AND date=?').get(kid.id, d1);
+  assert.deepEqual(d1After, d1Before);
+});
+
+test('currentDay is today for a kid with no rows or only older rows', () => {
+  const db = freshDb();
+  const kid = addChild(db);
+  const t = today(db);
+  assert.equal(currentDay(db, kid), t);
+  ensureDay(db, kid, addDays(t, -3));
+  assert.equal(currentDay(db, kid), t);
 });

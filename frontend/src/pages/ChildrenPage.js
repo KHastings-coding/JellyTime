@@ -105,8 +105,12 @@ export default function ChildrenPage() {
 
   async function deleteChild(id, name) {
     if (!window.confirm(`Remove ${name} from JellyTime? Their Jellyfin account won't be deleted.`)) return;
-    await api.delete(`/children/${id}`);
-    load();
+    try {
+      await api.delete(`/children/${id}`);
+      load();
+    } catch (err) {
+      window.alert(err.response?.data?.error || 'Could not remove');
+    }
   }
 
   return (
