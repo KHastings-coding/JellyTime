@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../lib/api';
 import { registerPush } from '../lib/push';
+import { balanceBreakdown } from '../lib/balance';
 import '../styles.css';
 
 export default function ParentDashboard() {
@@ -34,17 +35,6 @@ export default function ParentDashboard() {
   function logout() {
     localStorage.clear();
     navigate('/');
-  }
-
-  async function grantTime(childId, minutes) {
-    await api.post('/time/grant', { childId, minutes });
-    load();
-  }
-
-  async function resetTime(childId) {
-    if (!window.confirm('Reset today\'s screen time for this child?')) return;
-    await api.post('/time/reset', { childId });
-    load();
   }
 
   async function reviewChore(completionId, action) {
@@ -155,8 +145,7 @@ export default function ParentDashboard() {
                     <div style={{ flex:1, minWidth:150 }}>
                       <div style={{ fontWeight:800, fontSize:'1.2rem' }}>{child.name}</div>
                       <div style={{ color:'#a0a0c0', fontSize:'0.85rem' }}>
-                        {child.minutes_used}m used of {child.total_allowed}m
-                        {child.bonus_minutes > 0 && <span style={{ color:'#10b981' }}> (+{child.bonus_minutes}m bonus)</span>}
+                        {child.minutes_used}m watched · {balanceBreakdown(child)}
                       </div>
                     </div>
 
@@ -166,18 +155,9 @@ export default function ParentDashboard() {
                     </div>
 
                     {/* Actions */}
-                    <div style={{ display:'flex', gap:'0.5rem', flexWrap:'wrap' }}>
-                      {[15,30,60].map(m => (
-                        <button key={m} className="btn btn-ghost" style={{ padding:'0.4rem 0.7rem', fontSize:'0.8rem' }}
-                          onClick={() => grantTime(child.id, m)}>
-                          +{m}m
-                        </button>
-                      ))}
-                      <button className="btn btn-ghost" style={{ padding:'0.4rem 0.7rem', fontSize:'0.8rem', color:'#ef4444' }}
-                        onClick={() => resetTime(child.id)}>
-                        Reset
-                      </button>
-                    </div>
+                    <Link to={`/parent/adjust/${child.id}`} className="btn btn-ghost" style={{ padding:'0.4rem 0.9rem', fontSize:'0.85rem' }}>
+                      ± Adjust time
+                    </Link>
                   </div>
 
                   {/* Progress bar */}

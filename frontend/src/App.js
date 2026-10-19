@@ -11,6 +11,7 @@ import ChoresPage from './pages/ChoresPage';
 import ParentChores from './pages/ParentChores';
 import SettingsPage from './pages/SettingsPage';
 import ChildrenPage from './pages/ChildrenPage';
+import AdjustTimePage from './pages/AdjustTimePage';
 
 function AppRoutes() {
   useLocation(); // re-renders on every navigation so token/role are always fresh
@@ -28,6 +29,7 @@ function AppRoutes() {
       <Route path="/parent/chores" element={token && role==='parent' ? <ParentChores /> : <Navigate to="/" />} />
       <Route path="/parent/children" element={token && role==='parent' ? <ChildrenPage /> : <Navigate to="/" />} />
       <Route path="/parent/settings" element={token && role==='parent' ? <SettingsPage /> : <Navigate to="/" />} />
+      <Route path="/parent/adjust/:childId" element={token && role==='parent' ? <AdjustTimePage /> : <Navigate to="/" />} />
       <Route path="/child-select" element={<ChildSelect />} />
       <Route path="/child/:childId" element={<ChildDashboard />} />
       <Route path="/child/:childId/chores" element={<ChoresPage />} />
