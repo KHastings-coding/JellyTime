@@ -25,6 +25,7 @@
   background: var(--bg);
   color: var(--text);
   font-family: 'Nunito', sans-serif;
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .card {
@@ -100,6 +101,7 @@
   display: flex;
   align-items: center;
   padding: 1rem 1.5rem;
+  padding-top: max(1rem, calc(0.6rem + env(safe-area-inset-top)));
   background: rgba(15,15,26,0.9);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
@@ -151,4 +153,9 @@
 @media (max-width: 500px) {
   .grid-2 { grid-template-columns: 1fr; }
   .card { padding: 1.2rem; }
+}
+
+@media (max-width: 400px) {
+  .nav { gap: 0.4rem; padding-left: 1rem; padding-right: 1rem; }
+  .nav .btn { padding: 0.4rem 0.5rem; font-size: 0.75rem; }
 }

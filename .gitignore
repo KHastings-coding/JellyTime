@@ -1,0 +1,17 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+certs/
+*.key
+*.pem
+
+# Dependencies / build output
+node_modules/
+build/
+dist/
+
+# Local tooling
+.claude/
+docs/superpowers/
+.DS_Store

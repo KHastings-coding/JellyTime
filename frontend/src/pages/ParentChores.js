@@ -7,7 +7,7 @@ const ICONS = ['✅','🛏️','🧹','🍽️','🗑️','🐾','📚','🌿','
 
 function ChoreModal({ chore, onSave, onClose }) {
   const [form, setForm] = useState(chore || {
-    name:'', description:'', reward_minutes:15, icon:'✅', auto_approve:false, active:true
+    name:'', description:'', reward_minutes:15, icon:'✅', auto_approve:false, active:true, max_completions:1
   });
 
   function set(k, v) { setForm(p => ({...p, [k]:v})); }
@@ -56,6 +56,18 @@ function ChoreModal({ chore, onSave, onClose }) {
           <p style={{ color:'#a0a0c0',fontSize:'0.8rem',marginTop:-8 }}>
             Auto-approved chores grant time instantly. Manual chores require your confirmation.
           </p>
+          <div style={{ display:'flex',alignItems:'center',gap:'0.75rem' }}>
+            <input type="checkbox" id="multi" checked={form.max_completions !== 1} onChange={e=>set('max_completions', e.target.checked ? 0 : 1)} style={{ width:18,height:18,accentColor:'#7c3aed' }} />
+            <label htmlFor="multi" style={{ fontWeight:700,cursor:'pointer' }}>
+              Can be done more than once per day 🔁
+            </label>
+          </div>
+          {form.max_completions !== 1 && (
+            <div>
+              <label className="label">Max completions per day (0 = unlimited)</label>
+              <input className="input" type="number" min="0" max="20" value={form.max_completions} onChange={e=>set('max_completions', parseInt(e.target.value) || 0)} />
+            </div>
+          )}
           <div style={{ display:'flex',gap:'0.75rem',marginTop:'0.5rem' }}>
             <button type="button" className="btn btn-ghost" onClick={onClose} style={{ flex:1 }}>Cancel</button>
             <button type="submit" className="btn btn-primary" style={{ flex:2 }}>Save Chore</button>
@@ -152,6 +164,7 @@ export default function ParentChores() {
                   <div style={{ display:'flex',gap:'0.5rem',marginTop:'0.35rem',flexWrap:'wrap' }}>
                     <span className="badge badge-green">+{t.reward_minutes}m</span>
                     {t.auto_approve ? <span className="badge badge-purple">⚡ auto</span> : <span className="badge" style={{background:'rgba(255,255,255,0.05)',color:'#a0a0c0'}}>👀 manual</span>}
+                    {t.max_completions === 0 ? <span className="badge" style={{background:'rgba(99,102,241,0.15)',color:'#818cf8'}}>🔁 unlimited</span> : t.max_completions > 1 ? <span className="badge" style={{background:'rgba(99,102,241,0.15)',color:'#818cf8'}}>🔁 ×{t.max_completions}</span> : null}
                   </div>
                 </div>
                 <div style={{ display:'flex',gap:'0.5rem' }}>

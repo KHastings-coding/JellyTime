@@ -100,7 +100,7 @@ router.post('/jellyfin-login', async (req, res) => {
       { Username: username, Pw: password },
       {
         headers: {
-          'X-Emby-Authorization': 'MediaBrowser Client="JellyTime", Device="JellyTime", DeviceId="jellytime", Version="1.0"',
+          'Authorization': 'MediaBrowser Client="JellyTime", Device="JellyTime", DeviceId="jellytime", Version="1.0"',
           'Content-Type': 'application/json',
         },
         timeout: 8000,

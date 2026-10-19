@@ -6,7 +6,8 @@ const POLL_INTERVAL_SECONDS = 30;
 const activeTracking = new Map(); // childId -> { sessionId, startedAt }
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
 function getLedger(db, childId) {
@@ -102,6 +103,23 @@ async function poll() {
   }
 }
 
+let resetJob = null;
+
+export function scheduleReset() {
+  if (resetJob) { resetJob.stop(); resetJob = null; }
+  const db = getDb();
+  const t = db.prepare("SELECT value FROM settings WHERE key='reset_time'").get()?.value || '00:00';
+  const [h, m] = t.split(':');
+  console.log(`[JellyTime] Scheduling daily reset at ${t}`);
+  resetJob = cron.schedule(`0 ${parseInt(m)} ${parseInt(h)} * * *`, async () => {
+    console.log(`[JellyTime] Daily reset at ${t} — re-enabling all children`);
+    const db = getDb();
+    for (const child of db.prepare('SELECT * FROM children').all()) {
+      await enableUser(child.jellyfin_user_id);
+    }
+  });
+}
+
 export function startPolling() {
   console.log(`[JellyTime] Starting session poller every ${POLL_INTERVAL_SECONDS}s`);
   // Run immediately, then on schedule
@@ -110,15 +128,7 @@ export function startPolling() {
     poll().catch(console.error);
   });
 
-  // Midnight reset: re-enable all children for new day
-  cron.schedule('0 0 * * *', async () => {
-    console.log('[JellyTime] Midnight reset - re-enabling all children');
-    const db = getDb();
-    const children = db.prepare('SELECT * FROM children').all();
-    for (const child of children) {
-      await enableUser(child.jellyfin_user_id);
-    }
-  });
+  scheduleReset();
 }
 
 export function getRemainingMinutes(childId) {

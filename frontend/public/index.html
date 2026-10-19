@@ -11,9 +11,54 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Fredoka+One&display=swap" rel="stylesheet" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- Android fullscreen support -->
+    <meta name="theme-color" content="#7c3aed" media="(prefers-color-scheme: dark)" />
     <title>JellyTime</title>
+    <script>
+      // Request fullscreen when app is installed/launched from home screen (Android Chrome)
+      if ('serviceWorker' in navigator && 'showNotification' in Notification) {
+        window.addEventListener('load', async () => {
+          // Check if app is in standalone mode (installed from home screen)
+          const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+                               navigator.standalone === true;
+
+          // Request fullscreen on first launch after install (Chrome auto-shows when tapped)
+          if (isStandalone && 'goFull' in window) {
+            setTimeout(async () => {
+              try {
+                // Try goFull to hide address bar and show in fullscreen mode
+                await window.goFull?.();
+                console.log('Fullscreen mode enabled');
+              } catch (err) {
+                console.log('goFull not available or already fullscreen:', err.message);
+              }
+            }, 500);
+          }
+
+          // Send message to service worker to init permissions and subscription
+          if ('serviceWorker' in navigator) {
+            try {
+              const registration = await navigator.serviceWorker.ready;
+              registration.active?.postMessage(
+                { action: 'initFullscreen' },
+                { type: 'application/json' }
+              );
+            } catch (err) {
+              console.error('Service worker init error:', err);
+            }
+          }
+
+          // Request notifications permission on first launch (Android Chrome)
+          if ('Notification' in window && Notification.permission === 'default') {
+            await Notification.requestPermission();
+          }
+        });
+      }
+    </script>
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body { overflow-x: hidden; }
       html, body, #root { height: 100%; }
       body {
         font-family: 'Nunito', sans-serif;

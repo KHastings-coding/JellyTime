@@ -16,7 +16,7 @@ function jellyfinClient() {
   if (!baseUrl || !apiKey) throw new Error('Jellyfin not configured');
   return axios.create({
     baseURL: baseUrl,
-    headers: { 'X-Emby-Token': apiKey },
+    headers: { Authorization: `MediaBrowser Token="${apiKey}"` },
     timeout: 5000,
   });
 }
@@ -70,7 +70,7 @@ export async function enableUser(jellyfinUserId) {
 export async function testConnection(baseUrl, apiKey) {
   try {
     const res = await axios.get(`${baseUrl}/System/Info`, {
-      headers: { 'X-Emby-Token': apiKey },
+      headers: { Authorization: `MediaBrowser Token="${apiKey}"` },
       timeout: 5000,
     });
     return { ok: true, serverName: res.data.ServerName };

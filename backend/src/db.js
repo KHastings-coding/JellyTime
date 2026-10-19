@@ -103,6 +103,9 @@ export function initDb() {
   // Add display_name column if it doesn't exist (SQLite migration)
   try { db.exec("ALTER TABLE parent_accounts ADD COLUMN display_name TEXT"); } catch {}
 
+  // Add max_completions column if it doesn't exist (SQLite migration)
+  try { db.exec("ALTER TABLE chore_templates ADD COLUMN max_completions INTEGER DEFAULT 1"); } catch {}
+
   // Seed default chore templates if none exist
   const count = db.prepare('SELECT COUNT(*) as c FROM chore_templates').get();
   if (count.c === 0) {

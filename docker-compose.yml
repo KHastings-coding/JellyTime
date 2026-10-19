@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   backend:
     build: ./backend
@@ -12,6 +10,7 @@ services:
       - NODE_ENV=production
       - JELLYFIN_URL=${JELLYFIN_URL:-}
       - JELLYFIN_API_KEY=${JELLYFIN_API_KEY:-}
+      - TZ=${TZ:-UTC}
     volumes:
       - jellytime-data:/data
     networks:

@@ -51,8 +51,8 @@ export default function ChoresPage() {
     <div className="page" style={{ display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',fontSize:'2rem' }}>⏳</div>
   );
 
-  const available = chores.filter(c => !c.completion);
-  const done = chores.filter(c => c.completion);
+  const available = chores.filter(c => c.can_submit);
+  const done = chores.filter(c => c.completions && c.completions.length > 0);
 
   return (
     <div className="page">
@@ -126,23 +126,42 @@ export default function ChoresPage() {
         {done.length > 0 && (
           <>
             <h3 style={{ fontWeight:800, marginBottom:'1rem', color:'#a0a0c0', fontSize:'0.85rem', textTransform:'uppercase', letterSpacing:'0.05em' }}>
-              Completed today
+              Done today
             </h3>
             <div className="stack">
               {done.map(chore => {
-                const s = chore.completion?.status;
+                const activeComps = chore.completions.filter(c => c.status !== 'rejected');
+                const limit = chore.max_completions;
+                const countLabel = limit === 0
+                  ? `Done ${activeComps.length}× today`
+                  : activeComps.length > 1
+                    ? `${activeComps.length} / ${limit} done`
+                    : null;
                 return (
-                  <div key={chore.id} className="card" style={{ padding:'1.25rem', opacity:0.7 }}>
+                  <div key={chore.id} className="card" style={{ padding:'1.25rem', opacity: chore.can_submit ? 1 : 0.7 }}>
                     <div style={{ display:'flex', alignItems:'center', gap:'1rem' }}>
                       <span style={{ fontSize:'2.2rem' }}>{chore.icon}</span>
                       <div style={{ flex:1 }}>
                         <div style={{ fontWeight:800 }}>{chore.name}</div>
-                        <div style={{ marginTop:'0.3rem' }}>
-                          {s === 'approved' && <span className="badge badge-green">✓ Approved · +{chore.completion.reward_minutes}m</span>}
-                          {s === 'pending' && <span className="badge badge-orange">⏳ Waiting for approval</span>}
-                          {s === 'rejected' && <span className="badge badge-red">✗ Not approved today</span>}
+                        {countLabel && <div style={{ color:'#a0a0c0', fontSize:'0.8rem', marginBottom:'0.25rem' }}>{countLabel}</div>}
+                        <div style={{ display:'flex', flexWrap:'wrap', gap:'0.35rem', marginTop:'0.3rem' }}>
+                          {chore.completions.map(c => (
+                            <span key={c.id} className={c.status === 'approved' ? 'badge badge-green' : c.status === 'pending' ? 'badge badge-orange' : 'badge badge-red'}>
+                              {c.status === 'approved' ? `✓ +${c.reward_minutes}m` : c.status === 'pending' ? '⏳ Pending' : '✗ Rejected'}
+                            </span>
+                          ))}
                         </div>
                       </div>
+                      {chore.can_submit && (
+                        <button
+                          className="btn btn-primary"
+                          style={{ padding:'0.6rem 1rem', fontSize:'0.9rem', minWidth:80 }}
+                          onClick={() => submitChore(chore.id)}
+                          disabled={submitting === chore.id}
+                        >
+                          {submitting === chore.id ? '...' : 'Done!'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 );

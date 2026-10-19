@@ -2,6 +2,7 @@ import express from 'express';
 import { getDb } from '../db.js';
 import { requireAuth } from './auth.js';
 import { testConnection } from '../jellyfin.js';
+import { scheduleReset } from '../poller.js';
 
 const router = express.Router();
 
@@ -28,7 +29,7 @@ function requireAuthIfConfigured(req, res, next) {
 
 router.post('/', requireAuthIfConfigured, (req, res) => {
   const db = getDb();
-  const { jellyfin_url, jellyfin_api_key, local_login_enabled } = req.body;
+  const { jellyfin_url, jellyfin_api_key, local_login_enabled, reset_time } = req.body;
 
   const upsert = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)');
   if (jellyfin_url) upsert.run('jellyfin_url', jellyfin_url.replace(/\/$/, ''));
@@ -37,6 +38,10 @@ router.post('/', requireAuthIfConfigured, (req, res) => {
   }
   if (typeof local_login_enabled === 'boolean') {
     upsert.run('local_login_enabled', local_login_enabled ? 'true' : 'false');
+  }
+  if (reset_time) {
+    upsert.run('reset_time', reset_time);
+    scheduleReset();
   }
 
   res.json({ ok: true });

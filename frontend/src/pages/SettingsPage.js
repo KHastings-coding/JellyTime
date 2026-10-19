@@ -5,7 +5,7 @@ import { registerPush, unregisterPush } from '../lib/push';
 import '../styles.css';
 
 export default function SettingsPage() {
-  const [form, setForm] = useState({ jellyfin_url:'', jellyfin_api_key:'' });
+  const [form, setForm] = useState({ jellyfin_url:'', jellyfin_api_key:'', reset_time:'00:00' });
   const [testResult, setTestResult] = useState(null);
   const [saved, setSaved] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -230,6 +230,21 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {/* Schedule */}
+        <div className="card" style={{ marginTop:'1rem' }}>
+          <h3 style={{ fontWeight:800,fontSize:'1.2rem',marginBottom:'0.5rem' }}>Schedule</h3>
+          <p style={{ color:'#a0a0c0',fontSize:'0.9rem',marginBottom:'1.25rem' }}>
+            Set the time each day when Jellyfin accounts are re-enabled for a new day.
+          </p>
+          <form onSubmit={handleSave} className="stack">
+            <div>
+              <label className="label">Daily Reset Time</label>
+              <input className="input" type="time" value={form.reset_time||'00:00'} onChange={e=>setForm(p=>({...p,reset_time:e.target.value}))} />
+            </div>
+            <button type="submit" className="btn btn-primary">{saved?'✓ Saved!':'Save Settings'}</button>
+          </form>
+        </div>
+
         {/* Notifications */}
         {'serviceWorker' in navigator && 'PushManager' in window && (
           <div className="card" style={{ marginTop:'1rem' }}>
@@ -276,7 +291,7 @@ export default function SettingsPage() {
               ['🚫','Disables the Jellyfin account when the daily limit is hit'],
               ['🧹','Kids earn bonus time by completing chores'],
               ['✅','Auto-approve chores grant time instantly; others wait for you'],
-              ['🌅','Accounts re-enable automatically at midnight for a new day'],
+              ['🌅','Accounts re-enable at your configured daily reset time'],
             ].map(([icon, text]) => (
               <div key={text} style={{ display:'flex',gap:'0.75rem',alignItems:'flex-start' }}>
                 <span style={{ fontSize:'1.2rem' }}>{icon}</span>
