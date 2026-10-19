@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import path from 'path';
+import { today } from './clock.js';
 
 const DB_PATH = process.env.DB_PATH || '/data/jellytime.db';
 
@@ -14,8 +15,7 @@ export function getDb() {
   return db;
 }
 
-export function initDb() {
-  const db = getDb();
+export function initDb(db = getDb()) {
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
@@ -121,5 +121,88 @@ export function initDb() {
     insert.run('chore-6', 'Homework Done', 'Complete all homework assignments', 30, '📚', 0);
   }
 
+  // Earned-time rollover (schema v2)
+  for (const sql of [
+    'ALTER TABLE children ADD COLUMN bank_cap_minutes INTEGER',
+    "ALTER TABLE children ADD COLUMN debt_mode TEXT DEFAULT 'carry'",
+    'ALTER TABLE time_ledger ADD COLUMN carry_in_minutes REAL DEFAULT 0',
+    'ALTER TABLE time_ledger ADD COLUMN daily_limit_minutes INTEGER',
+    'ALTER TABLE time_ledger ADD COLUMN settled INTEGER DEFAULT 0',
+    'ALTER TABLE time_ledger ADD COLUMN carry_out_minutes REAL',
+  ]) {
+    try { db.exec(sql); } catch {}
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS time_adjustments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      child_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      minutes REAL NOT NULL,
+      kind TEXT NOT NULL,
+      reason TEXT,
+      icon TEXT,
+      template_id TEXT,
+      completion_id INTEGER,
+      created_at INTEGER DEFAULT (unixepoch())
+    );
+    CREATE INDEX IF NOT EXISTS idx_time_adjustments_child_date ON time_adjustments(child_id, date);
+
+    CREATE TABLE IF NOT EXISTS removal_templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      icon TEXT DEFAULT '⚠️',
+      minutes INTEGER NOT NULL,
+      active INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (unixepoch())
+    );
+
+    CREATE TABLE IF NOT EXISTS template_assignments (
+      template_type TEXT NOT NULL,
+      template_id TEXT NOT NULL,
+      child_id TEXT NOT NULL,
+      minutes_override INTEGER,
+      PRIMARY KEY (template_type, template_id, child_id)
+    );
+  `);
+
+  migrateToV2(db);
+
   console.log('Database initialized at', DB_PATH);
+}
+
+// One-time upgrade of pre-rollover data. Before v2 nothing carried over, so every
+// earlier day settles to zero; today's bonus becomes a visible adjustment.
+export function migrateToV2(db) {
+  const version = Number(db.prepare("SELECT value FROM settings WHERE key='schema_version'").get()?.value || 1);
+  if (version >= 2) return;
+  const date = today(db);
+  db.transaction(() => {
+    db.exec(`UPDATE time_ledger SET daily_limit_minutes =
+      (SELECT c.daily_limit_minutes FROM children c WHERE c.id = time_ledger.child_id)
+      WHERE daily_limit_minutes IS NULL`);
+
+    // TZ used to be misconfigured (UTC+7), so a row dated after today can exist: fold it in.
+    for (const row of db.prepare('SELECT * FROM time_ledger WHERE date > ?').all(date)) {
+      db.prepare(`
+        INSERT INTO time_ledger (child_id, date, minutes_used, bonus_minutes, daily_limit_minutes) VALUES (?,?,?,?,?)
+        ON CONFLICT(child_id, date) DO UPDATE SET
+          minutes_used = minutes_used + excluded.minutes_used,
+          bonus_minutes = bonus_minutes + excluded.bonus_minutes
+      `).run(row.child_id, date, row.minutes_used, row.bonus_minutes, row.daily_limit_minutes);
+      db.prepare('DELETE FROM time_ledger WHERE id=?').run(row.id);
+    }
+
+    db.prepare('UPDATE time_ledger SET settled=1, carry_out_minutes=0 WHERE date < ?').run(date);
+
+    for (const row of db.prepare('SELECT * FROM time_ledger WHERE date=? AND bonus_minutes != 0').all(date)) {
+      db.prepare(`INSERT INTO time_adjustments (child_id, date, minutes, kind, reason, icon)
+        VALUES (?,?,?,'grant','Earlier today','🎁')`).run(row.child_id, date, row.bonus_minutes);
+    }
+
+    db.exec(`INSERT OR IGNORE INTO template_assignments (template_type, template_id, child_id)
+      SELECT 'chore', ct.id, c.id FROM chore_templates ct CROSS JOIN children c WHERE ct.active=1`);
+
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('schema_version','2')").run();
+  })();
 }
