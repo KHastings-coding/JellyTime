@@ -3,42 +3,65 @@ import { getDb } from '../db.js';
 import { requireAuth } from './auth.js';
 import { randomUUID } from 'crypto';
 import { sendPushToAllParents } from './push.js';
+import { today } from '../clock.js';
+import { applyAdjustment } from '../accounting.js';
+import { sendError } from '../httpError.js';
+import {
+  parseMinutes, validateAssignments, setAssignments, assignToAllChildren, getAssignments, effectiveMinutes,
+} from '../templates.js';
 
 const router = express.Router();
 
-function today() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-
-// GET /api/chores/templates
+// GET /api/chores/templates[?childId=] — with childId: only that kid's chores, at their minutes
 router.get('/templates', (req, res) => {
   const db = getDb();
   const templates = db.prepare('SELECT * FROM chore_templates WHERE active=1 ORDER BY name').all();
-  res.json(templates);
+  const { childId } = req.query;
+  if (childId) {
+    return res.json(templates.flatMap(t => {
+      const minutes = effectiveMinutes(db, 'chore', t.id, childId, t.reward_minutes);
+      return minutes === null ? [] : [{ ...t, default_reward_minutes: t.reward_minutes, reward_minutes: minutes }];
+    }));
+  }
+  res.json(templates.map(t => ({ ...t, assignments: getAssignments(db, 'chore', t.id) })));
 });
 
 // POST /api/chores/templates
 router.post('/templates', requireAuth, (req, res) => {
-  const db = getDb();
-  const { name, description, reward_minutes, icon, auto_approve, max_completions } = req.body;
-  const id = randomUUID();
-  db.prepare(`
-    INSERT INTO chore_templates (id, name, description, reward_minutes, icon, auto_approve, max_completions)
-    VALUES (?,?,?,?,?,?,?)
-  `).run(id, name, description || '', reward_minutes, icon || '✅', auto_approve ? 1 : 0, max_completions ?? 1);
-  res.json({ id });
+  try {
+    const db = getDb();
+    const { name, description, reward_minutes, icon, auto_approve, max_completions, assignments } = req.body;
+    const reward = parseMinutes(reward_minutes, 'Reward');
+    const list = assignments === undefined ? null : validateAssignments(db, assignments);
+    const id = randomUUID();
+    db.transaction(() => {
+      db.prepare(`
+        INSERT INTO chore_templates (id, name, description, reward_minutes, icon, auto_approve, max_completions)
+        VALUES (?,?,?,?,?,?,?)
+      `).run(id, name, description || '', reward, icon || '✅', auto_approve ? 1 : 0, max_completions ?? 1);
+      if (list) setAssignments(db, 'chore', id, list);
+      else assignToAllChildren(db, 'chore', id);
+    })();
+    res.json({ id });
+  } catch (e) { sendError(res, e); }
 });
 
 // PUT /api/chores/templates/:id
 router.put('/templates/:id', requireAuth, (req, res) => {
-  const db = getDb();
-  const { name, description, reward_minutes, icon, auto_approve, active, max_completions } = req.body;
-  db.prepare(`
-    UPDATE chore_templates SET name=?, description=?, reward_minutes=?, icon=?, auto_approve=?, active=?, max_completions=?
-    WHERE id=?
-  `).run(name, description, reward_minutes, icon, auto_approve ? 1 : 0, active ? 1 : 0, max_completions ?? 1, req.params.id);
-  res.json({ ok: true });
+  try {
+    const db = getDb();
+    const { name, description, reward_minutes, icon, auto_approve, active, max_completions, assignments } = req.body;
+    const reward = parseMinutes(reward_minutes, 'Reward');
+    const list = assignments === undefined ? null : validateAssignments(db, assignments);
+    db.transaction(() => {
+      db.prepare(`
+        UPDATE chore_templates SET name=?, description=?, reward_minutes=?, icon=?, auto_approve=?, active=?, max_completions=?
+        WHERE id=?
+      `).run(name, description, reward, icon, auto_approve ? 1 : 0, active ? 1 : 0, max_completions ?? 1, req.params.id);
+      if (list) setAssignments(db, 'chore', req.params.id, list);
+    })();
+    res.json({ ok: true });
+  } catch (e) { sendError(res, e); }
 });
 
 // DELETE /api/chores/templates/:id
@@ -84,7 +107,7 @@ router.get('/pending', requireAuth, (req, res) => {
 // GET /api/chores/child/:childId - chores for a specific child today
 router.get('/child/:childId', (req, res) => {
   const db = getDb();
-  const date = today();
+  const date = today(db);
   const templates = db.prepare('SELECT * FROM chore_templates WHERE active=1').all();
 
   // Get today's completions for this child
@@ -98,11 +121,13 @@ router.get('/child/:childId', (req, res) => {
     completionsByChoreId[c.chore_id].push(c);
   }
 
-  const result = templates.map(t => {
+  const result = templates.flatMap(t => {
+    const reward = effectiveMinutes(db, 'chore', t.id, req.params.childId, t.reward_minutes);
+    if (reward === null) return [];
     const comps = completionsByChoreId[t.id] || [];
     const activeCount = comps.filter(c => c.status !== 'rejected').length;
     const can_submit = t.max_completions === 0 || activeCount < t.max_completions;
-    return { ...t, completions: comps, can_submit };
+    return [{ ...t, reward_minutes: reward, completions: comps, can_submit }];
   });
 
   res.json(result);
@@ -110,49 +135,50 @@ router.get('/child/:childId', (req, res) => {
 
 // POST /api/chores/submit - child submits a chore
 router.post('/submit', (req, res) => {
-  const db = getDb();
-  const { childId, choreId } = req.body;
-  const date = today();
+  try {
+    const db = getDb();
+    const { childId, choreId } = req.body;
+    const date = today(db);
 
-  const child = db.prepare('SELECT * FROM children WHERE id=?').get(childId);
-  if (!child) return res.status(404).json({ error: 'Child not found' });
+    const child = db.prepare('SELECT * FROM children WHERE id=?').get(childId);
+    if (!child) return res.status(404).json({ error: 'Child not found' });
 
-  const chore = db.prepare('SELECT * FROM chore_templates WHERE id=? AND active=1').get(choreId);
-  if (!chore) return res.status(404).json({ error: 'Chore not found' });
+    const chore = db.prepare('SELECT * FROM chore_templates WHERE id=? AND active=1').get(choreId);
+    if (!chore) return res.status(404).json({ error: 'Chore not found' });
+    const reward = effectiveMinutes(db, 'chore', chore.id, child.id, chore.reward_minutes);
+    if (reward === null) return res.status(404).json({ error: 'Chore not found' });
 
-  // Check completion limit
-  const countRow = db.prepare(
-    "SELECT COUNT(*) as c FROM chore_completions WHERE child_id=? AND chore_id=? AND date=? AND status != 'rejected'"
-  ).get(childId, choreId, date);
-  const limit = chore.max_completions;
-  if (limit !== 0 && countRow.c >= limit) {
-    return res.status(400).json({ error: 'Limit reached for today' });
-  }
+    const countRow = db.prepare(
+      "SELECT COUNT(*) as c FROM chore_completions WHERE child_id=? AND chore_id=? AND date=? AND status != 'rejected'"
+    ).get(childId, choreId, date);
+    const limit = chore.max_completions;
+    if (limit !== 0 && countRow.c >= limit) {
+      return res.status(400).json({ error: 'Limit reached for today' });
+    }
 
-  const autoApprove = chore.auto_approve === 1;
-  const status = autoApprove ? 'approved' : 'pending';
+    const autoApprove = chore.auto_approve === 1;
+    const status = autoApprove ? 'approved' : 'pending';
 
-  db.prepare(`
-    INSERT INTO chore_completions (child_id, chore_id, status, reward_minutes, date, reviewed_at)
-    VALUES (?,?,?,?,?,?)
-  `).run(childId, choreId, status, chore.reward_minutes, date, autoApprove ? Math.floor(Date.now() / 1000) : null);
+    const info = db.prepare(`
+      INSERT INTO chore_completions (child_id, chore_id, status, reward_minutes, date, reviewed_at)
+      VALUES (?,?,?,?,?,?)
+    `).run(childId, choreId, status, reward, date, autoApprove ? Math.floor(Date.now() / 1000) : null);
 
-  // If auto-approved, grant time immediately
-  if (autoApprove) {
-    db.prepare(`
-      INSERT INTO time_ledger (child_id, date, minutes_used, bonus_minutes) VALUES (?,?,0,?)
-      ON CONFLICT(child_id, date) DO UPDATE SET bonus_minutes = bonus_minutes + ?
-    `).run(childId, date, chore.reward_minutes, chore.reward_minutes);
-  } else {
-    // Notify parents that a chore needs approval
-    sendPushToAllParents(
-      '🧹 Chore needs approval',
-      `${child.name} completed "${chore.name}" — tap to review`,
-      '/parent/chores'
-    );
-  }
+    if (autoApprove) {
+      applyAdjustment(db, {
+        childId, minutes: reward, kind: 'chore', reason: chore.name, icon: chore.icon,
+        templateId: chore.id, completionId: Number(info.lastInsertRowid),
+      });
+    } else {
+      sendPushToAllParents(
+        '🧹 Chore needs approval',
+        `${child.name} completed "${chore.name}" — tap to review`,
+        '/parent/chores'
+      );
+    }
 
-  res.json({ ok: true, status, reward_minutes: chore.reward_minutes, auto_approved: autoApprove });
+    res.json({ ok: true, status, reward_minutes: reward, auto_approved: autoApprove });
+  } catch (e) { sendError(res, e); }
 });
 
 // POST /api/chores/review - parent approves or rejects
@@ -170,10 +196,13 @@ router.post('/review', requireAuth, (req, res) => {
   `).run(newStatus, note || null, completionId);
 
   if (action === 'approve') {
-    db.prepare(`
-      INSERT INTO time_ledger (child_id, date, minutes_used, bonus_minutes) VALUES (?,?,0,?)
-      ON CONFLICT(child_id, date) DO UPDATE SET bonus_minutes = bonus_minutes + ?
-    `).run(completion.child_id, completion.date, completion.reward_minutes, completion.reward_minutes);
+    // Credited to the day it is approved; days already settled are never changed.
+    const chore = db.prepare('SELECT name, icon FROM chore_templates WHERE id=?').get(completion.chore_id);
+    applyAdjustment(db, {
+      childId: completion.child_id, minutes: completion.reward_minutes, kind: 'chore',
+      reason: chore?.name || 'Chore', icon: chore?.icon || '✅',
+      templateId: completion.chore_id, completionId: completion.id,
+    });
   }
 
   res.json({ ok: true, status: newStatus });

@@ -1,0 +1,57 @@
+// Which kids a chore or removal template applies to, and how many minutes each kid gets.
+import { HttpError } from './httpError.js';
+
+const MAX_MINUTES = 1440;
+
+export function parseMinutes(value, field) {
+  const n = Number(value);
+  if (value === '' || value === null || !Number.isInteger(n) || n < 1 || n > MAX_MINUTES) {
+    throw new HttpError(400, `${field} must be a whole number from 1 to ${MAX_MINUTES}`);
+  }
+  return n;
+}
+
+export function validateAssignments(db, assignments) {
+  if (!Array.isArray(assignments)) throw new HttpError(400, 'assignments must be a list');
+  const known = new Set(db.prepare('SELECT id FROM children').all().map(r => r.id));
+  return assignments.map(a => {
+    if (!known.has(a?.childId)) throw new HttpError(400, `Unknown child: ${a?.childId}`);
+    const o = a.minutesOverride;
+    const minutesOverride = o === null || o === undefined || o === '' ? null : parseMinutes(o, 'Minutes for a kid');
+    return { childId: a.childId, minutesOverride };
+  });
+}
+
+export function setAssignments(db, type, templateId, assignments) {
+  db.transaction(() => {
+    db.prepare('DELETE FROM template_assignments WHERE template_type=? AND template_id=?').run(type, templateId);
+    const insert = db.prepare(`INSERT INTO template_assignments (template_type, template_id, child_id, minutes_override)
+      VALUES (?,?,?,?)`);
+    for (const a of assignments) insert.run(type, templateId, a.childId, a.minutesOverride);
+  })();
+}
+
+export function assignToAllChildren(db, type, templateId) {
+  db.prepare(`INSERT OR IGNORE INTO template_assignments (template_type, template_id, child_id)
+    SELECT ?, ?, id FROM children`).run(type, templateId);
+}
+
+export function assignAllTemplatesToChild(db, childId) {
+  db.prepare(`INSERT OR IGNORE INTO template_assignments (template_type, template_id, child_id)
+    SELECT 'chore', id, ? FROM chore_templates WHERE active=1`).run(childId);
+  db.prepare(`INSERT OR IGNORE INTO template_assignments (template_type, template_id, child_id)
+    SELECT 'removal', id, ? FROM removal_templates WHERE active=1`).run(childId);
+}
+
+export function getAssignments(db, type, templateId) {
+  return db.prepare(`SELECT child_id AS childId, minutes_override AS minutesOverride
+    FROM template_assignments WHERE template_type=? AND template_id=?`).all(type, templateId);
+}
+
+// Minutes this kid gets from the template, or null if it isn't assigned to them.
+export function effectiveMinutes(db, type, templateId, childId, defaultMinutes) {
+  const row = db.prepare(`SELECT minutes_override FROM template_assignments
+    WHERE template_type=? AND template_id=? AND child_id=?`).get(type, templateId, childId);
+  if (!row) return null;
+  return row.minutes_override ?? defaultMinutes;
+}
