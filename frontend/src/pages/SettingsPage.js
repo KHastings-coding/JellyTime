@@ -4,8 +4,18 @@ import api from '../lib/api';
 import { registerPush, unregisterPush } from '../lib/push';
 import '../styles.css';
 
+const COMMON_TIMEZONES = [
+  'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Chicago',
+  'America/New_York', 'America/Anchorage', 'Pacific/Honolulu',
+];
+
+function timezoneOptions() {
+  const all = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : [];
+  return [...COMMON_TIMEZONES, ...all.filter(z => !COMMON_TIMEZONES.includes(z))];
+}
+
 export default function SettingsPage() {
-  const [form, setForm] = useState({ jellyfin_url:'', jellyfin_api_key:'', reset_time:'00:00' });
+  const [form, setForm] = useState({ jellyfin_url:'', jellyfin_api_key:'', reset_time:'00:00', timezone:'America/Denver' });
   const [testResult, setTestResult] = useState(null);
   const [saved, setSaved] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -44,9 +54,13 @@ export default function SettingsPage() {
 
   async function handleSave(e) {
     e.preventDefault();
-    await api.post('/settings', form);
-    setSaved(true);
-    setTimeout(()=>setSaved(false),2000);
+    try {
+      await api.post('/settings', form);
+      setSaved(true);
+      setTimeout(()=>setSaved(false),2000);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Could not save settings');
+    }
   }
 
   async function handleTest() {
@@ -234,12 +248,18 @@ export default function SettingsPage() {
         <div className="card" style={{ marginTop:'1rem' }}>
           <h3 style={{ fontWeight:800,fontSize:'1.2rem',marginBottom:'0.5rem' }}>Schedule</h3>
           <p style={{ color:'#a0a0c0',fontSize:'0.9rem',marginBottom:'1.25rem' }}>
-            Set the time each day when Jellyfin accounts are re-enabled for a new day.
+            A new day starts at this time: the daily allotment refreshes and leftover earned time carries over.
           </p>
           <form onSubmit={handleSave} className="stack">
             <div>
               <label className="label">Daily Reset Time</label>
               <input className="input" type="time" value={form.reset_time||'00:00'} onChange={e=>setForm(p=>({...p,reset_time:e.target.value}))} />
+            </div>
+            <div>
+              <label className="label">Timezone</label>
+              <select className="input" value={form.timezone||'America/Denver'} onChange={e=>setForm(p=>({...p,timezone:e.target.value}))}>
+                {timezoneOptions().map(z => <option key={z} value={z}>{z.replace(/_/g,' ')}</option>)}
+              </select>
             </div>
             <button type="submit" className="btn btn-primary">{saved?'✓ Saved!':'Save Settings'}</button>
           </form>
