@@ -1,3 +1,6 @@
+// Bump when the caching rules change; activate deletes every other cache.
+const CACHE = 'jt-v2';
+
 // PWA lifecycle handlers
 self.addEventListener('install', event => {
   event.waitUntil(
@@ -6,30 +9,32 @@ self.addEventListener('install', event => {
 });
 
 self.addEventListener('activate', event => {
-  event.waitUntil(
-    self.clients.claim()
-  ).then(() => {
-    console.log('Service Worker activated and old clients claimed');
-  });
+  event.waitUntil((async () => {
+    const names = await caches.keys();
+    await Promise.all(names.filter(n => n !== CACHE).map(n => caches.delete(n)));
+    await self.clients.claim();
+    console.log('Service Worker activated and old caches cleared');
+  })());
 });
 
-// Fetch: network-first for API, cache-first for assets
+// Fetch: network-first for API and pages, cache-first for hashed assets
 self.addEventListener('fetch', event => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // API requests: network-first (always try network first)
-  if (url.pathname.startsWith('/api/')) {
+  // API requests and the app page itself: network-first, so a new deploy shows up
+  // on the next open (the page names the current hashed bundle)
+  if (url.pathname.startsWith('/api/') ||
+      url.pathname === '/' ||
+      request.mode === 'navigate') {
     event.respondWith(networkFirst(request));
     return;
   }
 
-  // Static assets: cache-first (use cached version if available)
+  // Static assets: cache-first (bundle filenames change on every build)
   if (url.pathname.startsWith('/static/') ||
       url.pathname.startsWith('/icon-') ||
-      url.pathname === '/manifest.json' ||
-      url.pathname === '/' ||
-      request.mode === 'navigate') {
+      url.pathname === '/manifest.json') {
     event.respondWith(cacheFirst(request));
     return;
   }
@@ -55,7 +60,7 @@ async function cacheFirst(request) {
     const networkResponse = await fetch(request);
     if (networkResponse.ok) {
       const clone = networkResponse.clone();
-      const cache = caches.open(request.origin + '/jt-v1').then(cache => {
+      const cache = caches.open(CACHE).then(cache => {
         cache.put(request, clone);
       });
       await cache; // wait for cache write
