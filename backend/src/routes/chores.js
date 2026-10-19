@@ -53,6 +53,9 @@ router.put('/templates/:id', requireAuth, (req, res) => {
     const { name, description, reward_minutes, icon, auto_approve, active, max_completions, assignments } = req.body;
     const reward = parseMinutes(reward_minutes, 'Reward');
     const list = assignments === undefined ? null : validateAssignments(db, assignments);
+    if (!db.prepare('SELECT 1 FROM chore_templates WHERE id=? AND active=1').get(req.params.id)) {
+      return res.status(404).json({ error: 'Chore not found' });
+    }
     db.transaction(() => {
       db.prepare(`
         UPDATE chore_templates SET name=?, description=?, reward_minutes=?, icon=?, auto_approve=?, active=?, max_completions=?
@@ -159,17 +162,20 @@ router.post('/submit', (req, res) => {
     const autoApprove = chore.auto_approve === 1;
     const status = autoApprove ? 'approved' : 'pending';
 
-    const info = db.prepare(`
-      INSERT INTO chore_completions (child_id, chore_id, status, reward_minutes, date, reviewed_at)
-      VALUES (?,?,?,?,?,?)
-    `).run(childId, choreId, status, reward, date, autoApprove ? Math.floor(Date.now() / 1000) : null);
+    db.transaction(() => {
+      const info = db.prepare(`
+        INSERT INTO chore_completions (child_id, chore_id, status, reward_minutes, date, reviewed_at)
+        VALUES (?,?,?,?,?,?)
+      `).run(childId, choreId, status, reward, date, autoApprove ? Math.floor(Date.now() / 1000) : null);
+      if (autoApprove) {
+        applyAdjustment(db, {
+          childId, minutes: reward, kind: 'chore', reason: chore.name, icon: chore.icon,
+          templateId: chore.id, completionId: Number(info.lastInsertRowid),
+        });
+      }
+    })();
 
-    if (autoApprove) {
-      applyAdjustment(db, {
-        childId, minutes: reward, kind: 'chore', reason: chore.name, icon: chore.icon,
-        templateId: chore.id, completionId: Number(info.lastInsertRowid),
-      });
-    } else {
+    if (!autoApprove) {
       sendPushToAllParents(
         '🧹 Chore needs approval',
         `${child.name} completed "${chore.name}" — tap to review`,
@@ -183,29 +189,33 @@ router.post('/submit', (req, res) => {
 
 // POST /api/chores/review - parent approves or rejects
 router.post('/review', requireAuth, (req, res) => {
-  const db = getDb();
-  const { completionId, action, note } = req.body; // action: 'approve' | 'reject'
+  try {
+    const db = getDb();
+    const { completionId, action, note } = req.body; // action: 'approve' | 'reject'
 
-  const completion = db.prepare('SELECT * FROM chore_completions WHERE id=?').get(completionId);
-  if (!completion) return res.status(404).json({ error: 'Not found' });
-  if (completion.status !== 'pending') return res.status(400).json({ error: 'Already reviewed' });
+    const completion = db.prepare('SELECT * FROM chore_completions WHERE id=?').get(completionId);
+    if (!completion) return res.status(404).json({ error: 'Not found' });
+    if (completion.status !== 'pending') return res.status(400).json({ error: 'Already reviewed' });
 
-  const newStatus = action === 'approve' ? 'approved' : 'rejected';
-  db.prepare(`
-    UPDATE chore_completions SET status=?, reviewed_at=unixepoch(), review_note=? WHERE id=?
-  `).run(newStatus, note || null, completionId);
+    const newStatus = action === 'approve' ? 'approved' : 'rejected';
+    db.transaction(() => {
+      db.prepare(`
+        UPDATE chore_completions SET status=?, reviewed_at=unixepoch(), review_note=? WHERE id=?
+      `).run(newStatus, note || null, completionId);
 
-  if (action === 'approve') {
-    // Credited to the day it is approved; days already settled are never changed.
-    const chore = db.prepare('SELECT name, icon FROM chore_templates WHERE id=?').get(completion.chore_id);
-    applyAdjustment(db, {
-      childId: completion.child_id, minutes: completion.reward_minutes, kind: 'chore',
-      reason: chore?.name || 'Chore', icon: chore?.icon || '✅',
-      templateId: completion.chore_id, completionId: completion.id,
-    });
-  }
+      if (action === 'approve') {
+        // Credited to the day it is approved; days already settled are never changed.
+        const chore = db.prepare('SELECT name, icon FROM chore_templates WHERE id=?').get(completion.chore_id);
+        applyAdjustment(db, {
+          childId: completion.child_id, minutes: completion.reward_minutes, kind: 'chore',
+          reason: chore?.name || 'Chore', icon: chore?.icon || '✅',
+          templateId: completion.chore_id, completionId: completion.id,
+        });
+      }
+    })();
 
-  res.json({ ok: true, status: newStatus });
+    res.json({ ok: true, status: newStatus });
+  } catch (e) { sendError(res, e); }
 });
 
 export default router;

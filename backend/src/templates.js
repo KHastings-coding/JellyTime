@@ -14,7 +14,10 @@ export function parseMinutes(value, field) {
 export function validateAssignments(db, assignments) {
   if (!Array.isArray(assignments)) throw new HttpError(400, 'assignments must be a list');
   const known = new Set(db.prepare('SELECT id FROM children').all().map(r => r.id));
+  const seen = new Set();
   return assignments.map(a => {
+    if (seen.has(a?.childId)) throw new HttpError(400, `Duplicate child: ${a.childId}`);
+    seen.add(a?.childId);
     if (!known.has(a?.childId)) throw new HttpError(400, `Unknown child: ${a?.childId}`);
     const o = a.minutesOverride;
     const minutesOverride = o === null || o === undefined || o === '' ? null : parseMinutes(o, 'Minutes for a kid');

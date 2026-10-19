@@ -79,3 +79,31 @@ test('invalid reward or assignment is rejected', async () => {
     assignments: [{ childId: 'ghost', minutesOverride: null }],
   }))).status, 400);
 });
+
+test('approval and credit are atomic: a failed credit leaves the completion pending', async () => {
+  const a = addChild(db);
+  const { body } = await app.call('POST', '/api/chores/templates', chore({ name: 'Atomic', auto_approve: false }));
+  const info = db.prepare(`INSERT INTO chore_completions (child_id, chore_id, status, reward_minutes, date)
+    VALUES (?,?, 'pending', 5, ?)`).run(a.id, body.id, today(db));
+  db.pragma('foreign_keys = OFF');
+  db.prepare('DELETE FROM children WHERE id=?').run(a.id);
+  db.pragma('foreign_keys = ON');
+  const r = await app.call('POST', '/api/chores/review', { completionId: Number(info.lastInsertRowid), action: 'approve' });
+  assert.ok(r.status >= 400 && r.status < 500);
+  assert.equal(db.prepare('SELECT status FROM chore_completions WHERE id=?').get(Number(info.lastInsertRowid)).status, 'pending');
+});
+
+test('duplicate childId in assignments is rejected with 400', async () => {
+  const a = addChild(db);
+  const r = await app.call('POST', '/api/chores/templates', chore({
+    assignments: [{ childId: a.id, minutesOverride: null }, { childId: a.id, minutesOverride: 5 }],
+  }));
+  assert.equal(r.status, 400);
+});
+
+test('PUT on a missing or inactive chore returns 404', async () => {
+  assert.equal((await app.call('PUT', '/api/chores/templates/nope', chore())).status, 404);
+  const { body } = await app.call('POST', '/api/chores/templates', chore({ name: 'Gone' }));
+  await app.call('DELETE', `/api/chores/templates/${body.id}`);
+  assert.equal((await app.call('PUT', `/api/chores/templates/${body.id}`, chore())).status, 404);
+});
