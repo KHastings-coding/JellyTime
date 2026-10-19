@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import api from '../lib/api';
+import { balanceBreakdown, formatAdjustment, formatTime } from '../lib/balance';
 import '../styles.css';
 
 function CircleTimer({ pct, remaining, total }) {
@@ -85,10 +86,7 @@ export default function ChildDashboard() {
           <CircleTimer pct={pct} remaining={status.remaining_minutes} total={status.total_allowed} />
 
           <div style={{ marginTop:'1.25rem', color:'#a0a0c0', fontSize:'0.85rem' }}>
-            {status.minutes_used}m watched · {status.daily_limit_minutes}m daily limit
-            {status.bonus_minutes > 0 && (
-              <span style={{ color:'#10b981' }}> + {status.bonus_minutes}m bonus earned</span>
-            )}
+            {status.minutes_used}m watched · {balanceBreakdown(status)}
           </div>
         </div>
 
@@ -130,6 +128,27 @@ export default function ChildDashboard() {
             <span style={{ color:'#7c3aed', fontSize:'1.3rem' }}>→</span>
           </div>
         </Link>
+
+        {/* Recent changes */}
+        {status.recent?.length > 0 && (
+          <div className="card" style={{ marginBottom:'1rem', padding:'1rem 1.25rem' }}>
+            <div style={{ fontWeight:800, marginBottom:'0.75rem' }}>Recent changes</div>
+            <div className="stack" style={{ gap:'0.6rem' }}>
+              {status.recent.map(a => (
+                <div key={a.id} style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
+                  <span style={{ fontSize:'1.3rem' }}>{a.icon}</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:700 }}>{a.reason}</div>
+                    <div style={{ color:'#a0a0c0', fontSize:'0.75rem' }}>
+                      {a.date === status.date ? 'Today' : a.date} · {formatTime(a.created_at)}
+                    </div>
+                  </div>
+                  <span className={`badge ${a.minutes > 0 ? 'badge-green' : 'badge-red'}`}>{formatAdjustment(a)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Time up message */}
         {status.remaining_minutes <= 0 && (
