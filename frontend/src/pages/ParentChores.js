@@ -1,25 +1,30 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../lib/api';
+import AssignmentPicker from '../components/AssignmentPicker';
+import RemovalLibrary from '../components/RemovalLibrary';
+import { allKidsAssignment, assignmentLabel } from '../lib/assignments';
 import '../styles.css';
 
 const ICONS = ['✅','🛏️','🧹','🍽️','🗑️','🐾','📚','🌿','🧺','🚿','🐕','🐱','🛒','🧽','🍳','🪣'];
 
-function ChoreModal({ chore, onSave, onClose }) {
+function ChoreModal({ chore, kids, onSave, onClose }) {
   const [form, setForm] = useState(chore || {
-    name:'', description:'', reward_minutes:15, icon:'✅', auto_approve:false, active:true, max_completions:1
+    name:'', description:'', reward_minutes:15, icon:'✅', auto_approve:false, active:true, max_completions:1,
+    assignments: allKidsAssignment(kids),
   });
+  const [error, setError] = useState('');
 
   function set(k, v) { setForm(p => ({...p, [k]:v})); }
 
   async function handleSave(e) {
     e.preventDefault();
-    onSave(form);
+    try { await onSave(form); } catch (err) { setError(err.response?.data?.error || 'Could not save'); }
   }
 
   return (
     <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:'1rem' }}>
-      <div className="card" style={{ width:'100%',maxWidth:480 }}>
+      <div className="card" style={{ width:'100%',maxWidth:480,maxHeight:'90vh',overflowY:'auto' }}>
         <h3 style={{ fontWeight:800,fontSize:'1.2rem',marginBottom:'1.5rem' }}>
           {chore ? 'Edit Chore' : 'Add Chore'}
         </h3>
@@ -47,6 +52,7 @@ function ChoreModal({ chore, onSave, onClose }) {
             <label className="label">Reward (minutes)</label>
             <input className="input" type="number" min="1" max="120" value={form.reward_minutes} onChange={e=>set('reward_minutes',parseInt(e.target.value))} required />
           </div>
+          <AssignmentPicker kids={kids} value={form.assignments || []} onChange={v=>set('assignments', v)} defaultMinutes={form.reward_minutes} />
           <div style={{ display:'flex',alignItems:'center',gap:'0.75rem' }}>
             <input type="checkbox" id="auto" checked={!!form.auto_approve} onChange={e=>set('auto_approve',e.target.checked)} style={{ width:18,height:18,accentColor:'#7c3aed' }} />
             <label htmlFor="auto" style={{ fontWeight:700,cursor:'pointer' }}>
@@ -68,6 +74,7 @@ function ChoreModal({ chore, onSave, onClose }) {
               <input className="input" type="number" min="0" max="20" value={form.max_completions} onChange={e=>set('max_completions', parseInt(e.target.value) || 0)} />
             </div>
           )}
+          {error && <div style={{ color:'#ef4444',fontSize:'0.85rem' }}>{error}</div>}
           <div style={{ display:'flex',gap:'0.75rem',marginTop:'0.5rem' }}>
             <button type="button" className="btn btn-ghost" onClick={onClose} style={{ flex:1 }}>Cancel</button>
             <button type="submit" className="btn btn-primary" style={{ flex:2 }}>Save Chore</button>
@@ -81,16 +88,23 @@ function ChoreModal({ chore, onSave, onClose }) {
 export default function ParentChores() {
   const [templates, setTemplates] = useState([]);
   const [pending, setPending] = useState([]);
+  const [kids, setKids] = useState([]);
+  const [removals, setRemovals] = useState([]);
+  const [tab, setTab] = useState('chores'); // 'chores' | 'removals'
   const [modal, setModal] = useState(null); // null | 'add' | chore object
   const navigate = useNavigate();
 
   const load = useCallback(async () => {
-    const [t, p] = await Promise.all([
+    const [t, p, k, r] = await Promise.all([
       api.get('/chores/templates'),
-      api.get('/chores/pending')
+      api.get('/chores/pending'),
+      api.get('/children'),
+      api.get('/removals/templates'),
     ]);
     setTemplates(t.data);
     setPending(p.data);
+    setKids(k.data);
+    setRemovals(r.data);
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -120,11 +134,21 @@ export default function ParentChores() {
     <div className="page">
       <nav className="nav">
         <Link to="/parent" className="btn btn-ghost" style={{ padding:'0.4rem 0.75rem',fontSize:'0.85rem' }}>← Dashboard</Link>
-        <span className="nav-title" style={{ flex:1,textAlign:'center' }}>🧹 Chores</span>
-        <button className="btn btn-primary" style={{ padding:'0.5rem 1rem',fontSize:'0.85rem' }} onClick={() => setModal('add')}>+ Add</button>
+        <span className="nav-title" style={{ flex:1,textAlign:'center' }}>🧹 Chores & Removals</span>
+        {tab === 'chores' ? (
+          <button className="btn btn-primary" style={{ padding:'0.5rem 1rem',fontSize:'0.85rem' }} onClick={() => setModal('add')}>+ Add</button>
+        ) : (
+          <div style={{ width:60 }} />
+        )}
       </nav>
 
       <div style={{ padding:'1.5rem',maxWidth:700,margin:'0 auto' }}>
+        <div style={{ display:'flex',gap:'0.5rem',marginBottom:'1.5rem' }}>
+          <button className={`btn ${tab==='chores'?'btn-primary':'btn-ghost'}`} style={{ flex:1 }} onClick={()=>setTab('chores')}>🧹 Chores</button>
+          <button className={`btn ${tab==='removals'?'btn-primary':'btn-ghost'}`} style={{ flex:1 }} onClick={()=>setTab('removals')}>⚠️ Removals</button>
+        </div>
+
+        {tab === 'chores' && (<>
         {/* Pending approvals */}
         {pending.length > 0 && (
           <div style={{ marginBottom:'2rem' }}>
@@ -161,6 +185,7 @@ export default function ParentChores() {
                 <div style={{ flex:1 }}>
                   <div style={{ fontWeight:800 }}>{t.name}</div>
                   <div style={{ color:'#a0a0c0',fontSize:'0.85rem' }}>{t.description || ''}</div>
+                  <div style={{ color:'#a0a0c0',fontSize:'0.8rem' }}>{assignmentLabel(t.assignments, kids)}</div>
                   <div style={{ display:'flex',gap:'0.5rem',marginTop:'0.35rem',flexWrap:'wrap' }}>
                     <span className="badge badge-green">+{t.reward_minutes}m</span>
                     {t.auto_approve ? <span className="badge badge-purple">⚡ auto</span> : <span className="badge" style={{background:'rgba(255,255,255,0.05)',color:'#a0a0c0'}}>👀 manual</span>}
@@ -175,9 +200,12 @@ export default function ParentChores() {
             </div>
           ))}
         </div>
+        </>)}
+
+        {tab === 'removals' && <RemovalLibrary templates={removals} kids={kids} reload={load} />}
       </div>
 
-      {modal && <ChoreModal chore={modal==='add'?null:modal} onSave={saveChore} onClose={() => setModal(null)} />}
+      {modal && <ChoreModal chore={modal==='add'?null:modal} kids={kids} onSave={saveChore} onClose={() => setModal(null)} />}
     </div>
   );
 }
