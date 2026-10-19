@@ -9,6 +9,7 @@ import timeRoutes from './routes/time.js';
 import childRoutes from './routes/children.js';
 import settingsRoutes from './routes/settings.js';
 import pushRoutes from './routes/push.js';
+import removalRoutes from './routes/removals.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -23,6 +24,7 @@ app.use('/api/time', timeRoutes);
 app.use('/api/children', childRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/push', pushRoutes);
+app.use('/api/removals', removalRoutes);
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
