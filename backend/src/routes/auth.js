@@ -18,7 +18,9 @@ export function requireAuth(req, res, next) {
   } catch {
     return res.status(401).json({ error: 'Invalid token' });
   }
-  if (decoded.role === 'child') return res.status(403).json({ error: 'Parents only' });
+  if (decoded.childId || (decoded.role !== undefined && decoded.role !== 'parent')) {
+    return res.status(403).json({ error: 'Parents only' });
+  }
   req.user = decoded;
   next();
 }

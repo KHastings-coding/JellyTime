@@ -1,6 +1,7 @@
 import { getDb, startApp, addChild, setClock, childToken } from './helpers.js';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
+import jwt from 'jsonwebtoken';
 
 const { default: timeRouter } = await import('../src/routes/time.js');
 const { default: settingsRouter } = await import('../src/routes/settings.js');
@@ -48,4 +49,17 @@ test('kid pages still work with a kid token', async () => {
 test('parents are unaffected and missing tokens are still 401', async () => {
   assert.equal((await app.call('GET', '/api/time/today-all')).status, 200);
   assert.equal((await app.call('GET', '/api/time/today-all', undefined, { auth: false })).status, 401);
+});
+
+test('settings connection test is parent-only', async () => {
+  const body = { jellyfin_url: 'http://127.0.0.1:9', jellyfin_api_key: 'k' };
+  assert.equal((await app.call('POST', '/api/settings/test', body, { token })).status, 403);
+  assert.equal((await app.call('POST', '/api/settings/test', body, { auth: false })).status, 401);
+  assert.equal((await app.call('POST', '/api/settings/test', body)).status, 200);
+});
+
+test('tokens with a childId or a non-parent role are refused, garbage is 401', async () => {
+  const noRole = jwt.sign({ childId: 'x' }, 'test-secret');
+  assert.equal((await app.call('GET', '/api/time/today-all', undefined, { token: noRole })).status, 403);
+  assert.equal((await app.call('GET', '/api/time/today-all', undefined, { token: 'not-a-jwt' })).status, 401);
 });

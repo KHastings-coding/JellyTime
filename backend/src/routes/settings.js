@@ -59,7 +59,7 @@ router.post('/', requireAuthIfConfigured, (req, res) => {
   res.json({ ok: true });
 });
 
-router.post('/test', async (req, res) => {
+router.post('/test', requireAuthIfConfigured, async (req, res) => {
   const { jellyfin_url, jellyfin_api_key } = req.body;
   const db = getDb();
   const storedKey = db.prepare("SELECT value FROM settings WHERE key='jellyfin_api_key'").get();
