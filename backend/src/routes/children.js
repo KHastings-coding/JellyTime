@@ -10,20 +10,32 @@ import { today } from '../clock.js';
 
 const router = express.Router();
 
-function parseChildOptions(body) {
+// Strict whole-number parse: a JS number, or a digits-only string. Anything else is NaN.
+function strictNumber(v) {
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string' && /^\d+$/.test(v.trim())) return Number(v.trim());
+  return NaN;
+}
+
+function parseChildOptions(body, existing) {
+  let bank_cap_minutes;
   const cap = body.bank_cap_minutes;
-  const bank_cap_minutes = cap === null || cap === undefined || cap === '' ? null : Number(cap);
-  if (bank_cap_minutes !== null && (!Number.isInteger(bank_cap_minutes) || bank_cap_minutes < 0 || bank_cap_minutes > 10000)) {
-    throw new HttpError(400, 'Bank cap must be blank or a whole number of minutes (0–10000)');
+  if (cap === undefined && existing) bank_cap_minutes = existing.bank_cap_minutes;
+  else if (cap === null || cap === undefined || cap === '') bank_cap_minutes = null;
+  else {
+    bank_cap_minutes = strictNumber(cap);
+    if (!Number.isInteger(bank_cap_minutes) || bank_cap_minutes < 0 || bank_cap_minutes > 10000) {
+      throw new HttpError(400, 'Bank cap must be blank or a whole number of minutes (0–10000)');
+    }
   }
-  const debt_mode = body.debt_mode ?? 'carry';
+  const debt_mode = body.debt_mode ?? (existing ? existing.debt_mode : 'carry');
   if (!['carry', 'forgive'].includes(debt_mode)) throw new HttpError(400, "debt_mode must be 'carry' or 'forgive'");
   return { bank_cap_minutes, debt_mode };
 }
 
 function parseDailyLimit(value, fallback) {
   if (value === undefined || value === null || value === '') return fallback;
-  const n = Number(value);
+  const n = strictNumber(value);
   if (!Number.isInteger(n) || n < 0 || n > 1440) throw new HttpError(400, 'Daily limit must be 0–1440 minutes');
   return n;
 }
@@ -86,12 +98,13 @@ router.put('/:id', requireAuth, (req, res) => {
     const child = db.prepare('SELECT * FROM children WHERE id=?').get(req.params.id);
     if (!child) return res.status(404).json({ error: 'Not found' });
     const { name, avatar_emoji } = req.body;
-    const { bank_cap_minutes, debt_mode } = parseChildOptions(req.body);
+    if (name !== undefined && (typeof name !== 'string' || !name.trim())) throw new HttpError(400, 'name cannot be blank');
+    const { bank_cap_minutes, debt_mode } = parseChildOptions(req.body, child);
     const daily = parseDailyLimit(req.body.daily_limit_minutes, child.daily_limit_minutes);
     db.transaction(() => {
       db.prepare(`
         UPDATE children SET name=?, avatar_emoji=?, daily_limit_minutes=?, bank_cap_minutes=?, debt_mode=? WHERE id=?
-      `).run(name ?? child.name, avatar_emoji ?? child.avatar_emoji, daily, bank_cap_minutes, debt_mode, child.id);
+      `).run(name !== undefined ? name.trim() : child.name, avatar_emoji ?? child.avatar_emoji, daily, bank_cap_minutes, debt_mode, child.id);
       // A new limit applies from today, as it did before rollover existed
       db.prepare('UPDATE time_ledger SET daily_limit_minutes=? WHERE child_id=? AND date=? AND settled=0')
         .run(daily, child.id, today(db));

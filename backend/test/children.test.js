@@ -65,3 +65,32 @@ test('status shows the balance breakdown and recent changes, newest first, max 1
   const list = (await app.call('GET', '/api/children', undefined, { auth: false })).body;
   assert.equal(list.find(c => c.id === r.body.id).daily_left, 60);
 });
+
+test('PUT that omits cap and mode keeps them', async () => {
+  const r = await create({ bank_cap_minutes: 120, debt_mode: 'forgive' });
+  assert.equal((await app.call('PUT', `/api/children/${r.body.id}`, { name: 'X' })).status, 200);
+  const row = db.prepare('SELECT * FROM children WHERE id=?').get(r.body.id);
+  assert.deepEqual([row.name, row.bank_cap_minutes, row.debt_mode], ['X', 120, 'forgive']);
+  await app.call('PUT', `/api/children/${r.body.id}`, { bank_cap_minutes: null });
+  assert.equal(db.prepare('SELECT bank_cap_minutes FROM children WHERE id=?').get(r.body.id).bank_cap_minutes, null);
+});
+
+test('numeric fields are parsed strictly', async () => {
+  for (const bad of [true, '  ', [], {}, '1e2', '-5', [5]]) {
+    assert.equal((await create({ bank_cap_minutes: bad })).status, 400, `cap ${JSON.stringify(bad)}`);
+    assert.equal((await create({ daily_limit_minutes: bad === '  ' ? 'x' : bad })).status, 400, `limit ${JSON.stringify(bad)}`);
+  }
+  const ok = await create({ bank_cap_minutes: ' 45 ', daily_limit_minutes: '30' });
+  assert.equal(ok.status, 200);
+  const row = db.prepare('SELECT * FROM children WHERE id=?').get(ok.body.id);
+  assert.deepEqual([row.bank_cap_minutes, row.daily_limit_minutes], [45, 30]);
+});
+
+test('PUT rejects a blank name and keeps the name when omitted', async () => {
+  const r = await create();
+  for (const name of ['', '   ']) {
+    assert.equal((await app.call('PUT', `/api/children/${r.body.id}`, { name })).status, 400);
+  }
+  assert.equal((await app.call('PUT', `/api/children/${r.body.id}`, { avatar_emoji: '🐱' })).status, 200);
+  assert.match(db.prepare('SELECT name FROM children WHERE id=?').get(r.body.id).name, /^Kid /);
+});
