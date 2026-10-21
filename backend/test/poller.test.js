@@ -105,3 +105,14 @@ test('daily reset marks yesterday open checklist runs missed and creates today\'
   assert.equal(runs.find(r => r.date === yesterday).status, 'missed');
   assert.ok(runs.some(r => r.date === today(db) && r.status === 'open'));
 });
+
+test('daily reset continues when one kid\'s checklist sync throws', async t => {
+  t.mock.method(console, 'error', () => {});
+  const a = addChild(db), b = addChild(db);
+  db.prepare("INSERT INTO checklist_templates (id, name, reward_minutes, schedule) VALUES ('bad-sched-poll', 'Bad', 5, '{bad')").run();
+  db.prepare("INSERT INTO template_assignments (template_type, template_id, child_id) VALUES ('checklist', 'bad-sched-poll', ?)").run(a.id);
+  const jf = fakeJellyfin([]);
+  await runDailyReset(jf);
+  assert.deepEqual(callsFor(jf, b), ['enable']);
+  db.prepare("UPDATE checklist_templates SET archived=1 WHERE id='bad-sched-poll'").run();
+});

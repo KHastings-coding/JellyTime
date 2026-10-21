@@ -82,3 +82,15 @@ test('GET /pending and /templates sync runs: yesterday\'s open run becomes misse
   assert.equal(list.body.find(c => c.id === id2).streaks[kid2.id].streak, 0);
   assert.equal(db.prepare('SELECT status FROM checklist_runs WHERE checklist_id=? AND date=?').get(id2, yesterday).status, 'missed');
 });
+
+test('a checklist with corrupt schedule JSON does not break /templates or /pending', async t => {
+  t.mock.method(console, 'error', () => {});
+  const kid = addChild(db);
+  db.prepare("INSERT INTO checklist_templates (id, name, reward_minutes, schedule) VALUES ('bad-sched', 'Bad', 5, '{bad')").run();
+  db.prepare("INSERT INTO template_assignments (template_type, template_id, child_id) VALUES ('checklist', 'bad-sched', ?)").run(kid.id);
+  assert.equal((await app.call('GET', '/api/checklists/pending')).status, 200);
+  const list = await app.call('GET', '/api/checklists/templates');
+  assert.equal(list.status, 200);
+  assert.ok(!list.body.some(c => c.id === 'bad-sched'));
+  db.prepare("UPDATE checklist_templates SET archived=1 WHERE id='bad-sched'").run();
+});

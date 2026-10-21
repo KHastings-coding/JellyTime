@@ -125,10 +125,15 @@ export function getChecklist(db, id) {
 }
 
 export function listChecklists(db) {
-  return db.prepare('SELECT * FROM checklist_templates WHERE archived=0 ORDER BY name').all().map(r => {
-    const c = shape(db, r);
-    c.streaks = Object.fromEntries(c.assignments.map(a => [a.childId, streaks(db, a.childId, c.id)]));
-    return c;
+  return db.prepare('SELECT * FROM checklist_templates WHERE archived=0 ORDER BY name').all().flatMap(r => {
+    try {
+      const c = shape(db, r);
+      c.streaks = Object.fromEntries(c.assignments.map(a => [a.childId, streaks(db, a.childId, c.id)]));
+      return [c];
+    } catch (err) {
+      console.error(`[JellyTime] Skipping unreadable checklist ${r.id}:`, err);
+      return [];
+    }
   });
 }
 

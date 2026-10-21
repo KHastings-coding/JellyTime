@@ -13,7 +13,9 @@ const router = express.Router();
 
 // Brings every kid's runs current (missed rollovers, today's runs) before a parent view reads them.
 function syncAllKids(db) {
-  for (const child of db.prepare('SELECT * FROM children').all()) syncRuns(db, child);
+  for (const child of db.prepare('SELECT * FROM children').all()) {
+    try { syncRuns(db, child); } catch (err) { console.error(`[JellyTime] Checklist sync failed for ${child.name}:`, err); }
+  }
 }
 
 router.get('/templates', requireAuth, (req, res) => {
@@ -47,10 +49,10 @@ router.post('/runs/:runId/tick', (req, res) => {
 router.post('/runs/:runId/submit', (req, res) => {
   try {
     const db = getDb();
+    const kidName = getChild(db, req.body?.childId)?.name;
     const { view, notify } = submitRun(db, Number(req.params.runId), req.body || {});
     if (notify) {
-      const child = getChild(db, req.body.childId);
-      sendPushToAllParents('Checklist done', `${child.name} finished ${view.name}`, '/parent/chores')
+      sendPushToAllParents('Checklist done', `${kidName ?? 'A kid'} finished ${view.name}`, '/parent/chores')
         .catch(err => console.error('[JellyTime] Checklist push failed:', err));
     }
     res.json(view);
