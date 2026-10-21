@@ -1,11 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
 import api from '../lib/api';
 import AssignmentPicker from '../components/AssignmentPicker';
 import RemovalLibrary from '../components/RemovalLibrary';
 import ChecklistLibrary from '../components/ChecklistLibrary';
 import PendingChecklists from '../components/PendingChecklists';
 import { allKidsAssignment, assignmentLabel } from '../lib/assignments';
+import ParentNav from '../components/ParentNav';
 import '../styles.css';
 
 const ICONS = ['✅','🛏️','🧹','🍽️','🗑️','🐾','📚','🌿','🧺','🚿','🐕','🐱','🛒','🧽','🍳','🪣'];
@@ -96,7 +96,6 @@ export default function ParentChores() {
   const [pendingChecklists, setPendingChecklists] = useState([]);
   const [tab, setTab] = useState('chores'); // 'chores' | 'removals' | 'checklists'
   const [modal, setModal] = useState(null); // null | 'add' | chore object
-  const navigate = useNavigate();
 
   const load = useCallback(async () => {
     const [t, p, k, r, c, pc] = await Promise.all([
@@ -140,21 +139,18 @@ export default function ParentChores() {
 
   return (
     <div className="page">
-      <nav className="nav">
-        <Link to="/parent" className="btn btn-ghost" style={{ padding:'0.4rem 0.75rem',fontSize:'0.85rem' }}>← Dashboard</Link>
-        <span className="nav-title" style={{ flex:1,textAlign:'center' }}>🧹 Chores & Removals</span>
-        {tab === 'chores' ? (
-          <button className="btn btn-primary" style={{ padding:'0.5rem 1rem',fontSize:'0.85rem' }} onClick={() => setModal('add')}>+ Add</button>
-        ) : (
-          <div style={{ width:60 }} />
+      <ParentNav
+        title="🧹 Chores"
+        actions={tab === 'chores' && (
+          <button className="btn btn-primary nav-action" onClick={() => setModal('add')}>+ Add</button>
         )}
-      </nav>
+      />
 
       <div style={{ padding:'1.5rem',maxWidth:700,margin:'0 auto' }}>
-        <div style={{ display:'flex',gap:'0.5rem',marginBottom:'1.5rem' }}>
-          <button className={`btn ${tab==='chores'?'btn-primary':'btn-ghost'}`} style={{ flex:1 }} onClick={()=>setTab('chores')}>🧹 Chores</button>
-          <button className={`btn ${tab==='removals'?'btn-primary':'btn-ghost'}`} style={{ flex:1 }} onClick={()=>setTab('removals')}>⚠️ Removals</button>
-          <button className={`btn ${tab==='checklists'?'btn-primary':'btn-ghost'}`} style={{ flex:1 }} onClick={()=>setTab('checklists')}>📝 Checklists</button>
+        <div className="tab-row">
+          <button className={`btn ${tab==='chores'?'btn-primary':'btn-ghost'}`} onClick={()=>setTab('chores')}>🧹 Chores</button>
+          <button className={`btn ${tab==='removals'?'btn-primary':'btn-ghost'}`} onClick={()=>setTab('removals')}>⚠️ Removals</button>
+          <button className={`btn ${tab==='checklists'?'btn-primary':'btn-ghost'}`} onClick={()=>setTab('checklists')}>📝 Checklists</button>
         </div>
 
         {tab === 'chores' && (<>

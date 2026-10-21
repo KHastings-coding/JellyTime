@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import api from '../lib/api';
 import { balanceBreakdown, formatAdjustment, formatTime } from '../lib/balance';
+import ParentNav from '../components/ParentNav';
 import '../styles.css';
 
 const QUICK_ADD = [15, 30, 60];
@@ -72,9 +73,7 @@ export default function AdjustTimePage() {
 
   if (!child) return (
     <div className="page">
-      <nav className="nav">
-        <Link to="/parent" className="btn btn-ghost" style={{ padding:'0.4rem 0.75rem',fontSize:'0.85rem' }}>← Dashboard</Link>
-      </nav>
+      <ParentNav title="± Adjust time" />
       <div className="card" style={{ maxWidth:600,margin:'1.5rem auto',textAlign:'center' }}>
         <h3 style={{ fontWeight:800,marginBottom:'0.5rem' }}>Couldn't load this kid</h3>
         {loadError && <p style={{ color:'#ef4444',fontSize:'0.9rem' }}>{loadError}</p>}
@@ -84,11 +83,7 @@ export default function AdjustTimePage() {
 
   return (
     <div className="page">
-      <nav className="nav">
-        <Link to="/parent" className="btn btn-ghost" style={{ padding:'0.4rem 0.75rem',fontSize:'0.85rem' }}>← Dashboard</Link>
-        <span className="nav-title" style={{ flex:1,textAlign:'center' }}>{child.avatar_emoji} {child.name}</span>
-        <div style={{ width:60 }} />
-      </nav>
+      <ParentNav title={`${child.avatar_emoji} ${child.name}`} />
 
       <div className="stack" style={{ padding:'1.5rem',maxWidth:600,margin:'0 auto' }}>
         <div className="card" style={{ textAlign:'center' }}>

@@ -79,7 +79,7 @@ export default function ChildDashboard() {
       {/* Nav */}
       <nav className="nav">
         <button onClick={() => navigate('/child-select')} className="btn btn-ghost" style={{ padding:'0.4rem 0.75rem', fontSize:'0.85rem' }}>←</button>
-        <span style={{ fontFamily:'Fredoka One, cursive', fontSize:'1.3rem', color:'#a855f7', flex:1, textAlign:'center' }}>
+        <span className="nav-title" style={{ textAlign:'center' }}>
           {status.avatar_emoji} {status.name}
         </span>
         <div style={{ width:60 }} />

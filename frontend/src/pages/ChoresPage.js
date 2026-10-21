@@ -101,7 +101,7 @@ export default function ChoresPage() {
     <div className="page">
       <nav className="nav">
         <button onClick={() => navigate(`/child/${childId}`)} className="btn btn-ghost" style={{ padding:'0.4rem 0.75rem', fontSize:'0.85rem' }}>←</button>
-        <span style={{ fontFamily:'Fredoka One, cursive', fontSize:'1.3rem', color:'#a855f7', flex:1, textAlign:'center' }}>
+        <span className="nav-title" style={{ textAlign:'center' }}>
           Earn Screen Time
         </span>
         <div style={{ width:60 }} />

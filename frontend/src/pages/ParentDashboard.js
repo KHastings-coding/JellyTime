@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import api from '../lib/api';
 import { registerPush } from '../lib/push';
 import { balanceBreakdown } from '../lib/balance';
 import PendingChecklists from '../components/PendingChecklists';
+import ParentNav from '../components/ParentNav';
 import '../styles.css';
 
 export default function ParentDashboard() {
@@ -12,7 +13,6 @@ export default function ParentDashboard() {
   const [pendingChecklists, setPendingChecklists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showPushBanner, setShowPushBanner] = useState(false);
-  const navigate = useNavigate();
 
   const load = useCallback(async () => {
     try {
@@ -36,11 +36,6 @@ export default function ParentDashboard() {
     }
   }, []);
 
-  function logout() {
-    localStorage.clear();
-    navigate('/');
-  }
-
   async function reviewChore(completionId, action) {
     await api.post('/chores/review', { completionId, action });
     load();
@@ -51,14 +46,7 @@ export default function ParentDashboard() {
   return (
     <div className="page">
       {/* Nav */}
-      <nav className="nav">
-        <span className="nav-title">🎬 JellyTime</span>
-        <span style={{ flex:1 }}/>
-        <Link to="/parent/chores" className="btn btn-ghost" style={{ padding:'0.5rem 1rem', fontSize:'0.85rem' }}>🧹 Chores</Link>
-        <Link to="/parent/children" className="btn btn-ghost" style={{ padding:'0.5rem 1rem', fontSize:'0.85rem' }}>👥 Kids</Link>
-        <Link to="/parent/settings" className="btn btn-ghost" style={{ padding:'0.5rem 1rem', fontSize:'0.85rem' }}>⚙️</Link>
-        <button onClick={logout} className="btn btn-ghost" style={{ padding:'0.5rem 1rem', fontSize:'0.85rem' }}>↩</button>
-      </nav>
+      <ParentNav title="🎬 JellyTime" back={false} />
 
       <div style={{ padding:'1.5rem', maxWidth:900, margin:'0 auto' }}>
         <h2 style={{ fontWeight:900, fontSize:'1.6rem', marginBottom:'1.5rem' }}>Today's Overview</h2>

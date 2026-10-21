@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
 import api from '../lib/api';
 import { registerPush, unregisterPush } from '../lib/push';
+import ParentNav from '../components/ParentNav';
 import '../styles.css';
 
 const COMMON_TIMEZONES = [
@@ -123,10 +123,7 @@ export default function SettingsPage() {
 
   return (
     <div className="page">
-      <nav className="nav">
-        <Link to="/parent" className="btn btn-ghost" style={{ padding:'0.4rem 0.75rem',fontSize:'0.85rem' }}>← Dashboard</Link>
-        <span className="nav-title" style={{ flex:1,textAlign:'center' }}>⚙️ Settings</span>
-      </nav>
+      <ParentNav title="⚙️ Settings" />
 
       <div style={{ padding:'1.5rem',maxWidth:560,margin:'0 auto' }}>
         {/* Jellyfin Connection */}

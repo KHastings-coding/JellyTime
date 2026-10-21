@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
 import api from '../lib/api';
+import ParentNav from '../components/ParentNav';
 import '../styles.css';
 
 const AVATARS = ['🧒','👧','👦','🧑','👶','🦊','🐼','🦁','🐸','🐧','🦄','🐙'];
@@ -115,11 +115,10 @@ export default function ChildrenPage() {
 
   return (
     <div className="page">
-      <nav className="nav">
-        <Link to="/parent" className="btn btn-ghost" style={{ padding:'0.4rem 0.75rem',fontSize:'0.85rem' }}>← Dashboard</Link>
-        <span className="nav-title" style={{ flex:1,textAlign:'center' }}>👥 Kids</span>
-        <button className="btn btn-primary" style={{ padding:'0.5rem 1rem',fontSize:'0.85rem' }} onClick={()=>setModal('add')}>+ Add</button>
-      </nav>
+      <ParentNav
+        title="👥 Kids"
+        actions={<button className="btn btn-primary nav-action" onClick={()=>setModal('add')}>+ Add</button>}
+      />
 
       <div style={{ padding:'1.5rem',maxWidth:700,margin:'0 auto' }}>
         {children.length === 0 ? (

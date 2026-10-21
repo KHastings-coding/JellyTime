@@ -115,7 +115,55 @@
   font-family: 'Fredoka One', cursive;
   font-size: 1.4rem;
   color: var(--purple-light);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
+.nav .nav-btn { padding: 0.45rem 0.75rem; font-size: 0.95rem; flex-shrink: 0; }
+.nav .nav-action { padding: 0.45rem 0.9rem; font-size: 0.85rem; flex-shrink: 0; white-space: nowrap; }
+
+.nav-menu { position: relative; flex-shrink: 0; }
+.nav-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.5rem);
+  min-width: 13rem;
+  max-width: calc(100vw - 2rem);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 0.35rem;
+  display: flex;
+  flex-direction: column;
+}
+.nav-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.75rem 0.9rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+.nav-menu-item:hover { background: var(--bg3); }
+.nav-menu-item.active { background: rgba(124,58,237,0.2); color: var(--purple-light); }
+.tab-row { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
+.tab-row .btn { flex: 1 1 0; min-width: 0; padding: 0.7rem 0.5rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 400px) {
+  .tab-row { gap: 0.35rem; }
+  .tab-row .btn { padding: 0.6rem 0.25rem; font-size: 0.8rem; gap: 0.25rem; }
+}
+
+.nav-menu-divider { height: 1px; background: var(--border); margin: 0.35rem 0.5rem; }
 
 .badge {
   display: inline-flex;
@@ -157,5 +205,6 @@
 
 @media (max-width: 400px) {
   .nav { gap: 0.4rem; padding-left: 1rem; padding-right: 1rem; }
-  .nav .btn { padding: 0.4rem 0.5rem; font-size: 0.75rem; }
+  .nav .btn { padding: 0.4rem 0.6rem; font-size: 0.8rem; }
+  .nav-title { font-size: 1.15rem; }
 }
