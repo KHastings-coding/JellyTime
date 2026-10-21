@@ -125,7 +125,28 @@ export function getChecklist(db, id) {
 }
 
 export function listChecklists(db) {
-  return db.prepare('SELECT * FROM checklist_templates WHERE archived=0 ORDER BY name').all().map(r => shape(db, r));
+  return db.prepare('SELECT * FROM checklist_templates WHERE archived=0 ORDER BY name').all().map(r => {
+    const c = shape(db, r);
+    c.streaks = Object.fromEntries(c.assignments.map(a => [a.childId, streaks(db, a.childId, c.id)]));
+    return c;
+  });
+}
+
+// Computed, never stored. Submitted and open runs neither count nor break a streak; a missed run does.
+export function streaks(db, childId, checklistId) {
+  const dates = db.prepare('SELECT status FROM checklist_runs WHERE child_id=? AND checklist_id=? ORDER BY date')
+    .all(childId, checklistId).map(r => r.status);
+  let best = 0, run = 0;
+  for (const st of dates) {
+    if (st === 'approved') best = Math.max(best, ++run);
+    else if (st === 'missed') run = 0;
+  }
+  let streak = 0;
+  for (const st of dates.reverse()) {
+    if (st === 'approved') streak++;
+    else if (st === 'missed') break;
+  }
+  return { streak, best };
 }
 
 // ---- Runs: one per kid x checklist x scheduled day ----
@@ -201,7 +222,8 @@ export function childRuns(db, childId, now = new Date()) {
   if (!child) throw new HttpError(404, 'Child not found');
   syncRuns(db, child, now);
   return db.prepare('SELECT * FROM checklist_runs WHERE child_id=? AND date=? ORDER BY name, id')
-    .all(child.id, currentDay(db, child, now)).map(r => runView(db, r, now));
+    .all(child.id, currentDay(db, child, now))
+    .map(r => ({ ...runView(db, r, now), streak: streaks(db, child.id, r.checklist_id).streak }));
 }
 
 const getRun = (db, runId) => db.prepare('SELECT * FROM checklist_runs WHERE id=?').get(runId);
@@ -218,6 +240,15 @@ function openRunForKid(db, runId, childId, now) {
   if (run.status !== 'open') throw new HttpError(400, 'This checklist is not open');
   if (runExpired(db, run, now)) throw new HttpError(400, 'Time is up for this checklist');
   return { run, child };
+}
+
+// Credits a run's snapshot reward to the kid's current day (call inside the status-change transaction).
+function creditRun(db, run, child, now) {
+  if (!(run.reward_minutes > 0)) return;
+  applyAdjustment(db, {
+    childId: child.id, minutes: run.reward_minutes, kind: 'checklist', reason: run.name,
+    icon: run.icon || '📝', templateId: run.checklist_id, date: currentDay(db, child, now),
+  });
 }
 
 export function tickItem(db, runId, { childId, itemId, done } = {}, now = new Date()) {
@@ -243,12 +274,55 @@ export function submitRun(db, runId, { childId } = {}, now = new Date()) {
       : db.prepare("UPDATE checklist_runs SET status='submitted', submitted_at=? WHERE id=? AND status='open'")
         .run(stamp, run.id);
     if (info.changes === 0) throw new HttpError(409, 'This checklist was already submitted');
-    if (auto && run.reward_minutes > 0) {
-      applyAdjustment(db, {
-        childId: child.id, minutes: run.reward_minutes, kind: 'checklist', reason: run.name,
-        icon: run.icon || '📝', templateId: run.checklist_id, date: currentDay(db, child, now),
-      });
-    }
+    if (auto) creditRun(db, run, child, now);
   })();
   return { view: runView(db, getRun(db, run.id), now), notify: !auto };
+}
+
+// ---- Parent review: works from the run's snapshot, so archived checklists stay reviewable ----
+
+const ACTIONS = ['approve', 'retry', 'missed'];
+
+export function reviewRun(db, runId, { action, note } = {}, now = new Date()) {
+  if (!ACTIONS.includes(action)) throw new HttpError(400, 'action must be approve, retry or missed');
+  const cleanNote = typeof note === 'string' ? note.trim() : '';
+  if (note != null && typeof note !== 'string') throw new HttpError(400, 'Note must be text');
+  if (cleanNote.length > 200) throw new HttpError(400, 'Note must be 200 characters or fewer');
+  const reviewNote = cleanNote || null;
+
+  const run = getRun(db, runId);
+  if (!run) throw new HttpError(404, 'Run not found');
+  if (run.status !== 'submitted') throw new HttpError(409, 'This checklist is not waiting for review');
+  const child = getChild(db, run.child_id);
+  if (!child) throw new HttpError(404, 'Child not found');
+  const stamp = Math.floor(now.getTime() / 1000);
+  const conflict = () => new HttpError(409, 'This checklist was already reviewed');
+
+  if (action === 'retry' && !runView(db, run, now).can_retry) {
+    throw new HttpError(400, 'Too late to retry — mark it missed or approve it');
+  }
+  db.transaction(() => {
+    let info;
+    if (action === 'approve') {
+      info = db.prepare("UPDATE checklist_runs SET status='approved', reviewed_at=?, review_note=? WHERE id=? AND status='submitted'")
+        .run(stamp, reviewNote, run.id);
+      if (info.changes === 0) throw conflict();
+      creditRun(db, run, child, now);
+    } else if (action === 'retry') {
+      info = db.prepare("UPDATE checklist_runs SET status='open', review_note=? WHERE id=? AND status='submitted'")
+        .run(reviewNote, run.id);
+      if (info.changes === 0) throw conflict();
+    } else {
+      info = db.prepare("UPDATE checklist_runs SET status='missed', review_note=?, reviewed_at=? WHERE id=? AND status='submitted'")
+        .run(reviewNote, stamp, run.id);
+      if (info.changes === 0) throw conflict();
+    }
+  })();
+  return runView(db, getRun(db, run.id), now);
+}
+
+export function pendingRuns(db, now = new Date()) {
+  return db.prepare(`SELECT r.*, c.name AS child_name FROM checklist_runs r JOIN children c ON c.id=r.child_id
+    WHERE r.status='submitted' ORDER BY r.submitted_at, r.id`).all()
+    .map(r => ({ ...runView(db, r, now), child_name: r.child_name }));
 }
