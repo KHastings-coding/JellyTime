@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import {
-  addDays, dayKeyFor, isValidResetTime, isValidTimezone, getClockSettings, today,
+  addDays, dayKeyFor, localTimeToInstant, deadlineInstant, isValidResetTime, isValidTimezone, getClockSettings, today,
   DEFAULT_TIMEZONE, DEFAULT_RESET_TIME,
 } from '../src/clock.js';
 
@@ -60,4 +60,15 @@ test('getClockSettings falls back to defaults for missing or invalid stored valu
 test('today reads the clock settings', () => {
   const db = settingsDb({ timezone: 'UTC', reset_time: '00:00' });
   assert.equal(today(db, new Date('2026-10-19T23:59:00Z')), '2026-10-19');
+});
+
+test('localTimeToInstant handles DST edges', () => {
+  assert.equal(localTimeToInstant('2026-11-01', '20:30', 'America/Denver').toISOString(), '2026-11-02T03:30:00.000Z');
+  assert.equal(localTimeToInstant('2026-10-31', '20:30', 'America/Denver').toISOString(), '2026-11-01T02:30:00.000Z');
+});
+
+test('deadlineInstant lands on next calendar date when deadline is before reset', () => {
+  assert.equal(deadlineInstant('2026-10-20', '01:00', 'UTC', '04:00').toISOString(), '2026-10-21T01:00:00.000Z');
+  assert.equal(deadlineInstant('2026-10-20', '20:30', 'UTC', '00:00').toISOString(), '2026-10-20T20:30:00.000Z');
+  assert.equal(deadlineInstant('2026-10-20', null, 'UTC', '00:00'), null);
 });

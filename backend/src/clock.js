@@ -64,3 +64,34 @@ export function today(db, now = new Date()) {
   const { timezone, resetTime } = getClockSettings(db);
   return dayKeyFor(now, timezone, resetTime);
 }
+
+// Offset (ms) of `timezone` from UTC at instant `t` (ms): wall-clock of t in tz, read as UTC, minus t.
+function tzOffsetMs(t, timezone) {
+  const parts = {};
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  for (const p of fmt.formatToParts(new Date(t))) parts[p.type] = p.value;
+  const wall = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    Number(parts.hour), Number(parts.minute), Number(parts.second));
+  return wall - Math.floor(t / 1000) * 1000;
+}
+
+// The instant at which the wall clock in `timezone` reads dateKey hh:mm.
+export function localTimeToInstant(dateKey, hhmm, timezone) {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const [hh, mm] = hhmm.split(':').map(Number);
+  const guess = Date.UTC(y, m - 1, d, hh, mm);
+  let t = guess - tzOffsetMs(guess, timezone);
+  t = guess - tzOffsetMs(t, timezone); // second pass settles DST edges
+  return new Date(t);
+}
+
+// Deadline for a run dated dateKey. A deadline earlier than the reset time
+// belongs to the next calendar date (the "day" runs past midnight).
+export function deadlineInstant(dateKey, deadline, timezone, resetTime) {
+  if (deadline == null) return null;
+  const day = deadline >= resetTime ? dateKey : addDays(dateKey, 1);
+  return localTimeToInstant(day, deadline, timezone);
+}
