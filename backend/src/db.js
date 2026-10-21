@@ -233,6 +233,11 @@ export function migrateToV3(db) {
         submitted_at INTEGER, reviewed_at INTEGER, review_note TEXT,
         UNIQUE (checklist_id, child_id, date));
       CREATE INDEX IF NOT EXISTS idx_checklist_runs_child_date ON checklist_runs(child_id, date);
+      CREATE TABLE IF NOT EXISTS checklist_fences (
+        checklist_id TEXT NOT NULL REFERENCES checklist_templates(id),
+        child_id TEXT NOT NULL REFERENCES children(id),
+        since TEXT NOT NULL,
+        PRIMARY KEY (checklist_id, child_id));
     `);
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('schema_version','3')").run();
   })();

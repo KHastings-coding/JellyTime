@@ -294,3 +294,43 @@ test('R2: a day skipped after its deadline is backfilled as missed once a later 
     ['2026-10-20', 'missed'], ['2026-10-21', 'missed'], ['2026-10-22', 'open'],
   ]);
 });
+
+const body = (kids, over = {}) => ({
+  name: 'Morning', reward_minutes: 15, schedule: { type: 'daily' }, items: ['Brush teeth', 'Get dressed'],
+  assignments: kids.map(k => ({ childId: k.id, minutesOverride: null })), ...over,
+});
+
+test('R4: days a kid was unassigned are not backfilled as missed', () => {
+  setClock(db, 'UTC', '00:00');
+  const kid = addChild(db);
+  const id = make([kid]);
+  childRuns(db, kid.id, at('2026-10-01T12:00:00Z'));
+  updateChecklist(db, id, body([]), at('2026-10-02T12:00:00Z'));
+  const now = at('2026-10-20T12:00:00Z');
+  updateChecklist(db, id, body([kid]), now);
+  assert.deepEqual(childRuns(db, kid.id, now).map(r => [r.date, r.status]), [['2026-10-20', 'open']]);
+  assert.deepEqual(runsFor(kid, id).map(r => [r.date, r.status]), [['2026-10-01', 'missed'], ['2026-10-20', 'open']]);
+});
+
+test('R4: days a checklist was inactive are not backfilled as missed', () => {
+  setClock(db, 'UTC', '00:00');
+  const kid = addChild(db);
+  const id = make([kid]);
+  childRuns(db, kid.id, at('2026-10-01T12:00:00Z'));
+  updateChecklist(db, id, body([kid], { active: false }), at('2026-10-02T12:00:00Z'));
+  const now = at('2026-10-20T12:00:00Z');
+  updateChecklist(db, id, body([kid], { active: true }), now);
+  childRuns(db, kid.id, now);
+  assert.deepEqual(runsFor(kid, id).map(r => [r.date, r.status]), [['2026-10-01', 'missed'], ['2026-10-20', 'open']]);
+});
+
+test('R4: an edit that keeps the assignment does not stop downtime backfill', () => {
+  setClock(db, 'UTC', '00:00');
+  const kid = addChild(db);
+  const id = make([kid]);
+  childRuns(db, kid.id, NOON_TUE);
+  updateChecklist(db, id, body([kid], { name: 'Morning!' }), at('2026-10-21T12:00:00Z'));
+  childRuns(db, kid.id, at('2026-10-24T12:00:00Z'));
+  assert.deepEqual(runsFor(kid, id).map(r => r.date),
+    ['2026-10-20', '2026-10-21', '2026-10-22', '2026-10-23', '2026-10-24']);
+});

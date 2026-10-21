@@ -65,14 +65,24 @@ function requireLive(db, id) {
 export function updateChecklist(db, id, body, now = new Date()) {
   requireLive(db, id);
   const v = validateBody(db, body);
+  const wasActive = !!db.prepare('SELECT active FROM checklist_templates WHERE id=?').get(id).active;
   db.transaction(() => {
     db.prepare(`UPDATE checklist_templates SET name=?, icon=?, reward_minutes=?, auto_approve=?, deadline=?,
       schedule=?, active=? WHERE id=?`)
       .run(v.name, v.icon, v.rewardMinutes, v.autoApprove, v.deadline, JSON.stringify(v.schedule), v.active, id);
     replaceItems(db, id, v.items);
     const kept = new Set(v.assignments.map(a => a.childId));
-    const removed = getAssignments(db, 'checklist', id).map(a => a.childId).filter(c => !kept.has(c));
+    const before = new Set(getAssignments(db, 'checklist', id).map(a => a.childId));
+    const removed = [...before].filter(c => !kept.has(c));
     setAssignments(db, 'checklist', id, v.assignments);
+    // Days the checklist didn't apply to a kid never count as missed: fence backfill at the day it
+    // (re)applies — a new assignment, or every assigned kid when the checklist is reactivated.
+    const fence = db.prepare(`INSERT INTO checklist_fences (checklist_id, child_id, since) VALUES (?,?,?)
+      ON CONFLICT (checklist_id, child_id) DO UPDATE SET since=excluded.since`);
+    const reactivated = !wasActive && v.active === 1;
+    for (const childId of kept) {
+      if (reactivated || !before.has(childId)) fence.run(id, childId, currentDay(db, { id: childId }, now));
+    }
     // An unassigned kid loses today's run only while it is still open; a submitted one stays reviewable.
     const del = db.prepare("DELETE FROM checklist_runs WHERE checklist_id=? AND child_id=? AND status='open' AND date>=?");
     for (const childId of removed) del.run(id, childId, currentDay(db, { id: childId }, now));
@@ -159,8 +169,9 @@ export function syncRuns(db, child, now = new Date()) {
         .get(c.id, child.id)?.d;
       if (newest) {
         const after = addDays(newest, 1);
-        const floor = addDays(day, -BACKFILL_DAYS);
-        const from = after > floor ? after : floor;
+        const since = db.prepare('SELECT since FROM checklist_fences WHERE checklist_id=? AND child_id=?')
+          .get(c.id, child.id)?.since;
+        const from = [after, addDays(day, -BACKFILL_DAYS), since].filter(Boolean).sort().at(-1);
         const to = addDays(day, -1);
         if (from <= to) for (const date of scheduledDatesBetween(schedule, from, to)) add(date, 'missed');
       }
