@@ -79,7 +79,7 @@ export function updateChecklist(db, id, body, now = new Date()) {
   })();
 }
 
-export function archiveChecklist(db, id) {
+export function archiveChecklist(db, id, now = new Date()) {
   const row = db.prepare('SELECT id FROM checklist_templates WHERE id=?').get(id);
   if (!row) throw new HttpError(404, 'Checklist not found');
   db.transaction(() => {
@@ -90,7 +90,7 @@ export function archiveChecklist(db, id) {
     for (const run of open) {
       if (!dayByChild.has(run.child_id)) {
         const child = db.prepare('SELECT * FROM children WHERE id=?').get(run.child_id);
-        dayByChild.set(run.child_id, child ? currentDay(db, child) : null);
+        dayByChild.set(run.child_id, child ? currentDay(db, child, now) : null);
       }
       const day = dayByChild.get(run.child_id);
       if (day && run.date >= day) del.run(run.id);
@@ -137,6 +137,7 @@ export function runExpired(db, run, now = new Date()) {
 export function syncRuns(db, child, now = new Date()) {
   db.transaction(() => {
     const day = currentDay(db, child, now);
+    const { timezone, resetTime } = getClockSettings(db);
     const miss = db.prepare("UPDATE checklist_runs SET status='missed' WHERE id=? AND status='open'");
     for (const run of db.prepare("SELECT * FROM checklist_runs WHERE child_id=? AND status='open'").all(child.id)) {
       if (runExpired(db, run, now)) miss.run(run.id);
@@ -163,7 +164,9 @@ export function syncRuns(db, child, now = new Date()) {
         const to = addDays(day, -1);
         if (from <= to) for (const date of scheduledDatesBetween(schedule, from, to)) add(date, 'missed');
       }
-      if (isScheduled(schedule, day)) add(day, 'open');
+      // A run that would already be past its deadline is not created; if a later run exists, backfill records it.
+      const lateAt = deadlineInstant(day, c.deadline, timezone, resetTime);
+      if (isScheduled(schedule, day) && !(lateAt && lateAt <= now)) add(day, 'open');
     }
   })();
 }

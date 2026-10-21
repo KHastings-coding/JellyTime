@@ -272,3 +272,25 @@ test('Review Focus 4: unassigning deletes an open run today but keeps a submitte
   assert.deepEqual(runsFor(keep, id).map(r => r.status), ['open']);
   assert.deepEqual(childRuns(db, a.id, NOON_TUE), []);
 });
+
+test('R2: a first sync after the deadline creates no run, and the next day has no backfill', () => {
+  setClock(db, 'UTC', '00:00');
+  const kid = addChild(db);
+  const id = make([kid], { deadline: '20:30' });
+  assert.deepEqual(childRuns(db, kid.id, at('2026-10-20T21:00:00Z')), []);
+  const runs = childRuns(db, kid.id, at('2026-10-21T12:00:00Z'));
+  assert.deepEqual(runs.map(r => [r.date, r.status]), [['2026-10-21', 'open']]);
+  assert.deepEqual(runsFor(kid, id).map(r => r.date), ['2026-10-21']);
+});
+
+test('R2: a day skipped after its deadline is backfilled as missed once a later run exists', () => {
+  setClock(db, 'UTC', '00:00');
+  const kid = addChild(db);
+  const id = make([kid], { deadline: '20:30' });
+  childRuns(db, kid.id, NOON_TUE);
+  assert.deepEqual(childRuns(db, kid.id, at('2026-10-21T21:00:00Z')), []);
+  childRuns(db, kid.id, at('2026-10-22T12:00:00Z'));
+  assert.deepEqual(runsFor(kid, id).map(r => [r.date, r.status]), [
+    ['2026-10-20', 'missed'], ['2026-10-21', 'missed'], ['2026-10-22', 'open'],
+  ]);
+});
