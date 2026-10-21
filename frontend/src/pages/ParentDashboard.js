@@ -3,23 +3,27 @@ import { useNavigate, Link } from 'react-router-dom';
 import api from '../lib/api';
 import { registerPush } from '../lib/push';
 import { balanceBreakdown } from '../lib/balance';
+import PendingChecklists from '../components/PendingChecklists';
 import '../styles.css';
 
 export default function ParentDashboard() {
   const [children, setChildren] = useState([]);
   const [pending, setPending] = useState([]);
+  const [pendingChecklists, setPendingChecklists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showPushBanner, setShowPushBanner] = useState(false);
   const navigate = useNavigate();
 
   const load = useCallback(async () => {
     try {
-      const [c, p] = await Promise.all([
+      const [c, p, pc] = await Promise.all([
         api.get('/time/today-all'),
-        api.get('/chores/pending')
+        api.get('/chores/pending'),
+        api.get('/checklists/pending').catch(() => ({ data: [] }))
       ]);
       setChildren(c.data);
       setPending(p.data);
+      setPendingChecklists(pc.data);
     } catch {}
     setLoading(false);
   }, []);
@@ -89,6 +93,8 @@ export default function ParentDashboard() {
             </div>
           </div>
         )}
+
+        <PendingChecklists runs={pendingChecklists} onChange={load} />
 
         {/* Pending approvals banner */}
         {pending.length > 0 && (

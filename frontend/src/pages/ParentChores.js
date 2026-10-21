@@ -4,6 +4,7 @@ import api from '../lib/api';
 import AssignmentPicker from '../components/AssignmentPicker';
 import RemovalLibrary from '../components/RemovalLibrary';
 import ChecklistLibrary from '../components/ChecklistLibrary';
+import PendingChecklists from '../components/PendingChecklists';
 import { allKidsAssignment, assignmentLabel } from '../lib/assignments';
 import '../styles.css';
 
@@ -92,23 +93,26 @@ export default function ParentChores() {
   const [kids, setKids] = useState([]);
   const [removals, setRemovals] = useState([]);
   const [checklists, setChecklists] = useState([]);
+  const [pendingChecklists, setPendingChecklists] = useState([]);
   const [tab, setTab] = useState('chores'); // 'chores' | 'removals' | 'checklists'
   const [modal, setModal] = useState(null); // null | 'add' | chore object
   const navigate = useNavigate();
 
   const load = useCallback(async () => {
-    const [t, p, k, r, c] = await Promise.all([
+    const [t, p, k, r, c, pc] = await Promise.all([
       api.get('/chores/templates'),
       api.get('/chores/pending'),
       api.get('/children'),
       api.get('/removals/templates'),
-      api.get('/checklists/templates'),
+      api.get('/checklists/templates').catch(() => ({ data: [] })),
+      api.get('/checklists/pending').catch(() => ({ data: [] })),
     ]);
     setTemplates(t.data);
     setPending(p.data);
     setKids(k.data);
     setRemovals(r.data);
     setChecklists(c.data);
+    setPendingChecklists(pc.data);
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -154,6 +158,8 @@ export default function ParentChores() {
         </div>
 
         {tab === 'chores' && (<>
+        <PendingChecklists runs={pendingChecklists} onChange={load} />
+
         {/* Pending approvals */}
         {pending.length > 0 && (
           <div style={{ marginBottom:'2rem' }}>
