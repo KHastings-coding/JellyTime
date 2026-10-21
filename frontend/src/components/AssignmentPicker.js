@@ -2,7 +2,7 @@ import React from 'react';
 
 // Which kids a template applies to, with optional per-kid minutes.
 // value: [{ childId, minutesOverride }]; minutesOverride null means "use the default".
-export default function AssignmentPicker({ kids, value, onChange, defaultMinutes }) {
+export default function AssignmentPicker({ kids, value, onChange, defaultMinutes, range = { min: 1, max: 1440 } }) {
   if (kids.length === 0) return null;
   const byId = Object.fromEntries(value.map(a => [a.childId, a]));
 
@@ -26,7 +26,7 @@ export default function AssignmentPicker({ kids, value, onChange, defaultMinutes
               <input type="checkbox" id={`kid-${k.id}`} checked={!!a} onChange={e=>toggle(k.id, e.target.checked)}
                 style={{ width:18,height:18,accentColor:'#7c3aed' }} />
               <label htmlFor={`kid-${k.id}`} style={{ flex:1,fontWeight:700,cursor:'pointer' }}>{k.avatar_emoji} {k.name}</label>
-              <input className="input" type="number" min="1" max="1440" style={{ width:110 }} disabled={!a}
+              <input className="input" type="number" min={range.min} max={range.max} style={{ width:110 }} disabled={!a}
                 placeholder={defaultMinutes ? `${defaultMinutes}m` : 'Minutes'}
                 value={a?.minutesOverride ?? ''} onChange={e=>setOverride(k.id, e.target.value)} />
             </div>

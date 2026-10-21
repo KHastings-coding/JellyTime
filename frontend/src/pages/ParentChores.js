@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import api from '../lib/api';
 import AssignmentPicker from '../components/AssignmentPicker';
 import RemovalLibrary from '../components/RemovalLibrary';
+import ChecklistLibrary from '../components/ChecklistLibrary';
 import { allKidsAssignment, assignmentLabel } from '../lib/assignments';
 import '../styles.css';
 
@@ -90,21 +91,24 @@ export default function ParentChores() {
   const [pending, setPending] = useState([]);
   const [kids, setKids] = useState([]);
   const [removals, setRemovals] = useState([]);
-  const [tab, setTab] = useState('chores'); // 'chores' | 'removals'
+  const [checklists, setChecklists] = useState([]);
+  const [tab, setTab] = useState('chores'); // 'chores' | 'removals' | 'checklists'
   const [modal, setModal] = useState(null); // null | 'add' | chore object
   const navigate = useNavigate();
 
   const load = useCallback(async () => {
-    const [t, p, k, r] = await Promise.all([
+    const [t, p, k, r, c] = await Promise.all([
       api.get('/chores/templates'),
       api.get('/chores/pending'),
       api.get('/children'),
       api.get('/removals/templates'),
+      api.get('/checklists/templates'),
     ]);
     setTemplates(t.data);
     setPending(p.data);
     setKids(k.data);
     setRemovals(r.data);
+    setChecklists(c.data);
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -146,6 +150,7 @@ export default function ParentChores() {
         <div style={{ display:'flex',gap:'0.5rem',marginBottom:'1.5rem' }}>
           <button className={`btn ${tab==='chores'?'btn-primary':'btn-ghost'}`} style={{ flex:1 }} onClick={()=>setTab('chores')}>🧹 Chores</button>
           <button className={`btn ${tab==='removals'?'btn-primary':'btn-ghost'}`} style={{ flex:1 }} onClick={()=>setTab('removals')}>⚠️ Removals</button>
+          <button className={`btn ${tab==='checklists'?'btn-primary':'btn-ghost'}`} style={{ flex:1 }} onClick={()=>setTab('checklists')}>📝 Checklists</button>
         </div>
 
         {tab === 'chores' && (<>
@@ -203,6 +208,8 @@ export default function ParentChores() {
         </>)}
 
         {tab === 'removals' && <RemovalLibrary templates={removals} kids={kids} reload={load} />}
+
+        {tab === 'checklists' && <ChecklistLibrary templates={checklists} kids={kids} reload={load} />}
       </div>
 
       {modal && <ChoreModal chore={modal==='add'?null:modal} kids={kids} onSave={saveChore} onClose={() => setModal(null)} />}
