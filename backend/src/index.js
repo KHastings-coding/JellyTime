@@ -10,6 +10,7 @@ import childRoutes from './routes/children.js';
 import settingsRoutes from './routes/settings.js';
 import pushRoutes from './routes/push.js';
 import removalRoutes from './routes/removals.js';
+import checklistRoutes from './routes/checklists.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -25,6 +26,7 @@ app.use('/api/children', childRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/push', pushRoutes);
 app.use('/api/removals', removalRoutes);
+app.use('/api/checklists', checklistRoutes);
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 

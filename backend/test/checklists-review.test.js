@@ -45,9 +45,18 @@ test('approve credits once; a second approve is 409', () => {
 test('approving the next day credits the kid current day', () => {
   setClock(db, 'UTC', '00:00');
   const kid = addChild(db);
-  const { runId } = submitted(kid);
-  reviewRun(db, runId, { action: 'approve' }, at('2026-10-21T08:00:00Z'));
-  assert.equal(adjustments(kid)[0].date, '2026-10-21');
+  const { runId } = submitted(kid, at('2027-03-09T12:00:00Z'));
+  reviewRun(db, runId, { action: 'approve' }, at('2027-03-10T08:00:00Z'));
+  assert.equal(adjustments(kid)[0].date, '2027-03-10');
+});
+
+test('approving a zero-minute checklist creates no adjustment', () => {
+  setClock(db, 'UTC', '00:00');
+  const kid = addChild(db);
+  const { runId } = submitted(kid, NOON_TUE, { reward_minutes: 0, auto_approve: false });
+  const view = reviewRun(db, runId, { action: 'approve' }, NOON_TUE);
+  assert.equal(view.status, 'approved');
+  assert.equal(adjustments(kid).length, 0);
 });
 
 test('retry before the deadline reopens and keeps ticks', () => {

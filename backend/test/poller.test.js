@@ -88,3 +88,20 @@ test('scheduleReset falls back to the default timezone when cron rejects the zon
     setClock(db, 'UTC', '00:00');
   }
 });
+
+test('daily reset marks yesterday open checklist runs missed and creates today\'s', async () => {
+  const { createChecklist } = await import('../src/checklists.js');
+  const { addDays } = await import('../src/clock.js');
+  const kid = addChild(db);
+  const cid = createChecklist(db, {
+    name: 'Morning', reward_minutes: 5, schedule: { type: 'daily' }, items: ['Brush'],
+    assignments: [{ childId: kid.id, minutesOverride: null }],
+  }).id;
+  const yesterday = addDays(today(db), -1);
+  db.prepare(`INSERT INTO checklist_runs (checklist_id, child_id, date, status, items, reward_minutes, name)
+    VALUES (?,?,?,?,?,?,?)`).run(cid, kid.id, yesterday, 'open', JSON.stringify([{ id: 'x', label: 'Brush', done: false }]), 5, 'Morning');
+  await runDailyReset(fakeJellyfin([]));
+  const runs = db.prepare('SELECT date, status FROM checklist_runs WHERE child_id=? ORDER BY date').all(kid.id);
+  assert.equal(runs.find(r => r.date === yesterday).status, 'missed');
+  assert.ok(runs.some(r => r.date === today(db) && r.status === 'open'));
+});

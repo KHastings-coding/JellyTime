@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import { getDb } from './db.js';
 import * as jellyfin from './jellyfin.js';
 import { getClockSettings, DEFAULT_TIMEZONE } from './clock.js';
+import { syncRuns } from './checklists.js';
 import { addUsage, childSummary, currentDay } from './accounting.js';
 
 const POLL_INTERVAL_SECONDS = 30;
@@ -37,6 +38,7 @@ export async function poll(jf = jellyfin, now = Date.now()) {
 export async function runDailyReset(jf = jellyfin) {
   const db = getDb();
   for (const child of db.prepare('SELECT * FROM children').all()) {
+    try { syncRuns(db, child); } catch (err) { console.error(`[JellyTime] Checklist sync failed for ${child.name}:`, err); }
     if (childSummary(db, child).available > 0) await jf.enableUser(child.jellyfin_user_id);
     else await jf.disableUser(child.jellyfin_user_id);
   }
