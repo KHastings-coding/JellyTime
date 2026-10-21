@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../lib/api';
+import ChecklistCard from '../components/ChecklistCard';
 import '../styles.css';
 
 export default function ChoresPage() {
@@ -10,6 +11,9 @@ export default function ChoresPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(null);
   const [toast, setToast] = useState(null);
+  const [runs, setRuns] = useState([]);
+  const [busyRun, setBusyRun] = useState(null);
+  const [runErrors, setRunErrors] = useState({});
   const navigate = useNavigate();
 
   const load = useCallback(async () => {
@@ -24,7 +28,46 @@ export default function ChoresPage() {
     setLoading(false);
   }, [childId]);
 
-  useEffect(() => { load(); }, [load]);
+  const loadRuns = useCallback(async () => {
+    try {
+      const r = await api.get(`/checklists/child/${childId}`);
+      setRuns(r.data);
+    } catch {}
+  }, [childId]);
+
+  useEffect(() => { load(); loadRuns(); }, [load, loadRuns]);
+
+  async function tickItem(run, item) {
+    const done = !item.done;
+    setRunErrors(e => ({ ...e, [run.id]: null }));
+    setRuns(rs => rs.map(r => r.id !== run.id ? r : {
+      ...r, items: r.items.map(i => i.id === item.id ? { ...i, done } : i),
+    }));
+    setBusyRun(run.id);
+    try {
+      const r = await api.post(`/checklists/runs/${run.id}/tick`, { childId, itemId: item.id, done });
+      setRuns(rs => rs.map(x => x.id === run.id ? r.data : x));
+      loadRuns();
+    } catch (e) {
+      setRunErrors(errs => ({ ...errs, [run.id]: e.response?.data?.error || 'Something went wrong' }));
+      loadRuns();
+    }
+    setBusyRun(null);
+  }
+
+  async function submitRun(run) {
+    setRunErrors(e => ({ ...e, [run.id]: null }));
+    setBusyRun(run.id);
+    try {
+      const r = await api.post(`/checklists/runs/${run.id}/submit`, { childId });
+      setRuns(rs => rs.map(x => x.id === run.id ? r.data : x));
+      loadRuns();
+    } catch (e) {
+      setRunErrors(errs => ({ ...errs, [run.id]: e.response?.data?.error || 'Something went wrong' }));
+      loadRuns();
+    }
+    setBusyRun(null);
+  }
 
   function showToast(msg, type='success') {
     setToast({ msg, type });
@@ -81,6 +124,21 @@ export default function ChoresPage() {
         <p style={{ color:'#a0a0c0', marginBottom:'1.5rem', fontSize:'0.95rem' }}>
           Hey {childName}! Complete chores below to earn extra screen time. ✨
         </p>
+
+        {/* Checklists */}
+        {runs.length > 0 && (
+          <>
+            <h3 style={{ fontWeight:800, marginBottom:'1rem', color:'#a0a0c0', fontSize:'0.85rem', textTransform:'uppercase', letterSpacing:'0.05em' }}>
+              Checklists
+            </h3>
+            <div className="stack" style={{ marginBottom:'2rem' }}>
+              {runs.map(run => (
+                <ChecklistCard key={run.id} run={run} busy={busyRun === run.id}
+                  error={runErrors[run.id]} onTick={tickItem} onSubmit={submitRun} />
+              ))}
+            </div>
+          </>
+        )}
 
         {/* Available chores */}
         {available.length > 0 && (
@@ -170,7 +228,7 @@ export default function ChoresPage() {
           </>
         )}
 
-        {available.length === 0 && done.length === 0 && (
+        {available.length === 0 && done.length === 0 && runs.length === 0 && (
           <div className="card" style={{ textAlign:'center', padding:'2.5rem' }}>
             <div style={{ fontSize:'3rem', marginBottom:'1rem' }}>🎊</div>
             <div style={{ fontWeight:800, fontSize:'1.1rem' }}>No chores today!</div>

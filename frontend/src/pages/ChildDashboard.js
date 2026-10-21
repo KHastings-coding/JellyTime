@@ -51,12 +51,17 @@ export default function ChildDashboard() {
   const { childId } = useParams();
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [runs, setRuns] = useState([]);
   const navigate = useNavigate();
 
   const load = useCallback(async () => {
     try {
       const r = await api.get(`/children/${childId}/status`);
       setStatus(r.data);
+    } catch {}
+    try {
+      const c = await api.get(`/checklists/child/${childId}`);
+      setRuns(c.data);
     } catch {}
     setLoading(false);
   }, [childId]);
@@ -129,6 +134,22 @@ export default function ChildDashboard() {
           </div>
         </Link>
 
+        {/* Today's checklists */}
+        {runs.length > 0 && (
+          <Link to={`/child/${childId}/chores`} style={{ textDecoration:'none', color:'inherit' }}>
+            <div className="card" style={{ marginBottom:'1rem', padding:'1rem 1.25rem' }}>
+              <div style={{ fontWeight:800, marginBottom:'0.75rem' }}>Today's checklists</div>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:'0.5rem' }}>
+                {runs.map(r => (
+                  <span key={r.id} className="badge" style={{ fontSize:'0.95rem', padding:'0.4rem 0.8rem' }}>
+                    {r.icon || '📝'} {r.name} {r.status === 'approved' ? '✓' : r.status === 'missed' ? '✗' : '…'}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </Link>
+        )}
+
         {/* Recent changes */}
         {status.recent?.length > 0 && (
           <div className="card" style={{ marginBottom:'1rem', padding:'1rem 1.25rem' }}>
@@ -136,7 +157,7 @@ export default function ChildDashboard() {
             <div className="stack" style={{ gap:'0.6rem' }}>
               {status.recent.map(a => (
                 <div key={a.id} style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
-                  <span style={{ fontSize:'1.3rem' }}>{a.icon}</span>
+                  <span style={{ fontSize:'1.3rem' }}>{a.icon || (a.kind === 'checklist' ? '📝' : '')}</span>
                   <div style={{ flex:1 }}>
                     <div style={{ fontWeight:700 }}>{a.reason}</div>
                     <div style={{ color:'#a0a0c0', fontSize:'0.75rem' }}>
