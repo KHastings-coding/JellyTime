@@ -1,17 +1,15 @@
 // Which kids a chore or removal template applies to, and how many minutes each kid gets.
 import { HttpError } from './httpError.js';
 
-const MAX_MINUTES = 1440;
-
-export function parseMinutes(value, field) {
+export function parseMinutes(value, field, { min = 1, max = 1440 } = {}) {
   const n = Number(value);
-  if (value === '' || value === null || !Number.isInteger(n) || n < 1 || n > MAX_MINUTES) {
-    throw new HttpError(400, `${field} must be a whole number from 1 to ${MAX_MINUTES}`);
+  if (value === '' || value === null || !Number.isInteger(n) || n < min || n > max) {
+    throw new HttpError(400, `${field} must be a whole number from ${min} to ${max}`);
   }
   return n;
 }
 
-export function validateAssignments(db, assignments) {
+export function validateAssignments(db, assignments, range) {
   if (!Array.isArray(assignments)) throw new HttpError(400, 'assignments must be a list');
   const known = new Set(db.prepare('SELECT id FROM children').all().map(r => r.id));
   const seen = new Set();
@@ -20,7 +18,7 @@ export function validateAssignments(db, assignments) {
     seen.add(a?.childId);
     if (!known.has(a?.childId)) throw new HttpError(400, `Unknown child: ${a?.childId}`);
     const o = a.minutesOverride;
-    const minutesOverride = o === null || o === undefined || o === '' ? null : parseMinutes(o, 'Minutes for a kid');
+    const minutesOverride = o === null || o === undefined || o === '' ? null : parseMinutes(o, 'Minutes for a kid', range);
     return { childId: a.childId, minutesOverride };
   });
 }

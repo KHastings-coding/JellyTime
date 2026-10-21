@@ -119,7 +119,7 @@ router.delete('/:id', requireAuth, (req, res) => {
     const child = db.prepare('SELECT id FROM children WHERE id=?').get(req.params.id);
     if (!child) throw new HttpError(404, 'Not found');
     db.transaction(() => {
-      for (const table of ['template_assignments', 'time_adjustments', 'time_ledger', 'chore_completions', 'sessions']) {
+      for (const table of ['template_assignments', 'time_adjustments', 'time_ledger', 'chore_completions', 'checklist_runs', 'sessions']) {
         db.prepare(`DELETE FROM ${table} WHERE child_id=?`).run(child.id);
       }
       db.prepare('DELETE FROM children WHERE id=?').run(child.id);

@@ -119,3 +119,13 @@ test('removing a kid deletes their history and assignments; other kids are untou
   assert.equal(db.prepare('SELECT COUNT(*) c FROM template_assignments WHERE child_id=?').get(kept).c, keptAssignments);
   assert.equal((await app.call('DELETE', `/api/children/${gone}`)).status, 404);
 });
+
+test('removing a kid also deletes their checklist runs', async () => {
+  const gone = (await create()).body.id;
+  db.prepare("INSERT INTO checklist_templates (id, name, reward_minutes, schedule) VALUES ('cl-delete-test','Morning',5,'{}')").run();
+  db.prepare(`INSERT INTO checklist_runs (checklist_id, child_id, date, items, reward_minutes, name)
+    VALUES ('cl-delete-test',?,'2026-01-01','[]',5,'Morning')`).run(gone);
+  const r = await app.call('DELETE', `/api/children/${gone}`);
+  assert.equal(r.status, 200);
+  assert.equal(db.prepare('SELECT COUNT(*) c FROM checklist_runs WHERE child_id=?').get(gone).c, 0);
+});

@@ -167,6 +167,7 @@ export function initDb(db = getDb()) {
   `);
 
   migrateToV2(db);
+  migrateToV3(db);
 
   console.log('Database initialized at', DB_PATH);
 }
@@ -205,5 +206,34 @@ export function migrateToV2(db) {
       SELECT 'chore', ct.id, c.id FROM chore_templates ct CROSS JOIN children c WHERE ct.active=1`);
 
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('schema_version','2')").run();
+  })();
+}
+
+// Parent-defined checklists. Adds tables only; no data is converted.
+export function migrateToV3(db) {
+  const version = Number(db.prepare("SELECT value FROM settings WHERE key='schema_version'").get()?.value || 1);
+  if (version >= 3) return;
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS checklist_templates (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT DEFAULT '📝',
+        reward_minutes INTEGER NOT NULL, auto_approve INTEGER DEFAULT 0,
+        deadline TEXT, schedule TEXT NOT NULL, active INTEGER DEFAULT 1,
+        archived INTEGER DEFAULT 0, created_at INTEGER DEFAULT (unixepoch()));
+      CREATE TABLE IF NOT EXISTS checklist_items (
+        id TEXT PRIMARY KEY, checklist_id TEXT NOT NULL REFERENCES checklist_templates(id),
+        position INTEGER NOT NULL, label TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS checklist_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        checklist_id TEXT NOT NULL REFERENCES checklist_templates(id),
+        child_id TEXT NOT NULL REFERENCES children(id),
+        date TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open',
+        items TEXT NOT NULL, reward_minutes INTEGER NOT NULL,
+        name TEXT NOT NULL, icon TEXT, deadline TEXT,
+        submitted_at INTEGER, reviewed_at INTEGER, review_note TEXT,
+        UNIQUE (checklist_id, child_id, date));
+      CREATE INDEX IF NOT EXISTS idx_checklist_runs_child_date ON checklist_runs(child_id, date);
+    `);
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('schema_version','3')").run();
   })();
 }
