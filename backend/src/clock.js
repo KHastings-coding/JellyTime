@@ -88,10 +88,10 @@ export function localTimeToInstant(dateKey, hhmm, timezone) {
   return new Date(t);
 }
 
-// Deadline for a run dated dateKey. A deadline earlier than the reset time
-// belongs to the next calendar date (the "day" runs past midnight).
+// Deadline for a run dated dateKey. A deadline at or before the reset time belongs to the next
+// calendar date (the "day" runs past midnight); one equal to the reset time is the end of the day.
 export function deadlineInstant(dateKey, deadline, timezone, resetTime) {
   if (deadline == null) return null;
-  const day = deadline >= resetTime ? dateKey : addDays(dateKey, 1);
+  const day = deadline > resetTime ? dateKey : addDays(dateKey, 1);
   return localTimeToInstant(day, deadline, timezone);
 }

@@ -108,6 +108,7 @@ function ChecklistModal({ template, kids, onSave, onClose }) {
 
 export default function ChecklistLibrary({ templates, kids, reload }) {
   const [modal, setModal] = useState(null); // null | 'add' | template
+  const [error, setError] = useState('');
 
   async function save(form) {
     if (modal === 'add') await api.post('/checklists/templates', form);
@@ -118,8 +119,11 @@ export default function ChecklistLibrary({ templates, kids, reload }) {
 
   async function remove(t) {
     if (!window.confirm(`Delete ${t.name}? Past results are kept.`)) return;
-    await api.delete(`/checklists/templates/${t.id}`);
-    reload();
+    setError('');
+    try {
+      await api.delete(`/checklists/templates/${t.id}`);
+      reload();
+    } catch (err) { setError(err.response?.data?.error || 'Could not delete'); }
   }
 
   return (
@@ -128,6 +132,7 @@ export default function ChecklistLibrary({ templates, kids, reload }) {
         <h3 style={{ fontWeight:800 }}>Checklists</h3>
         <button className="btn btn-primary" style={{ padding:'0.4rem 0.9rem',fontSize:'0.85rem' }} onClick={() => setModal('add')}>+ Add checklist</button>
       </div>
+      {error && <div style={{ color:'#ef4444',fontSize:'0.85rem',marginBottom:'0.75rem' }}>{error}</div>}
       {templates.length === 0 ? (
         <div className="card" style={{ textAlign:'center',padding:'2rem',color:'#a0a0c0' }}>
           No checklists yet. Add one for routines like getting ready in the morning.

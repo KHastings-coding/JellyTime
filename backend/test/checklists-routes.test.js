@@ -39,9 +39,11 @@ test('full flow over HTTP', async () => {
   for (const i of run.items) {
     const t = await app.call('POST', `/api/checklists/runs/${run.id}/tick`, { childId: kid.id, itemId: i.id, done: true }, { auth: false });
     assert.equal(t.status, 200);
+    assert.equal(t.body.streak, 0);
   }
   const sub = await app.call('POST', `/api/checklists/runs/${run.id}/submit`, { childId: kid.id }, { auth: false });
   assert.equal(sub.body.status, 'submitted');
+  assert.equal(sub.body.streak, 0);
   const pending = await app.call('GET', '/api/checklists/pending');
   assert.equal(pending.body.find(p => p.id === run.id).child_name, kid.name);
   const rev = await app.call('POST', `/api/checklists/runs/${run.id}/review`, { action: 'approve' });
@@ -93,4 +95,17 @@ test('a checklist with corrupt schedule JSON does not break /templates or /pendi
   assert.equal(list.status, 200);
   assert.ok(!list.body.some(c => c.id === 'bad-sched'));
   db.prepare("UPDATE checklist_templates SET archived=1 WHERE id='bad-sched'").run();
+});
+
+test('PUT without assignments keeps them; an explicit [] clears them', async () => {
+  const kid = addChild(db);
+  const { body: { id } } = await app.call('POST', '/api/checklists/templates', body(kid));
+  const { assignments, ...rest } = body(kid);
+  assert.equal((await app.call('PUT', `/api/checklists/templates/${id}`, { ...rest, name: 'Renamed' })).status, 200);
+  const listed = () => app.call('GET', '/api/checklists/templates').then(r => r.body.find(c => c.id === id));
+  const kept = await listed();
+  assert.equal(kept.name, 'Renamed');
+  assert.deepEqual(kept.assignments, assignments);
+  assert.equal((await app.call('PUT', `/api/checklists/templates/${id}`, { ...rest, assignments: [] })).status, 200);
+  assert.deepEqual((await listed()).assignments, []);
 });

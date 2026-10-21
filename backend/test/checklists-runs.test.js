@@ -334,3 +334,64 @@ test('R4: an edit that keeps the assignment does not stop downtime backfill', ()
   assert.deepEqual(runsFor(kid, id).map(r => r.date),
     ['2026-10-20', '2026-10-21', '2026-10-22', '2026-10-23', '2026-10-24']);
 });
+
+test('R6: reassigned after the deadline, the fence day is not backfilled as missed', () => {
+  setClock(db, 'UTC', '00:00');
+  const kid = addChild(db);
+  const id = make([kid], { deadline: '20:00' });
+  childRuns(db, kid.id, at('2026-10-01T12:00:00Z'));
+  updateChecklist(db, id, body([], { deadline: '20:00' }), at('2026-10-02T12:00:00Z'));
+  const late = at('2026-10-10T21:00:00Z');
+  updateChecklist(db, id, body([kid], { deadline: '20:00' }), late);
+  assert.deepEqual(childRuns(db, kid.id, late), []);
+  childRuns(db, kid.id, at('2026-10-11T12:00:00Z'));
+  assert.deepEqual(runsFor(kid, id).map(r => [r.date, r.status]), [['2026-10-01', 'missed'], ['2026-10-11', 'open']]);
+});
+
+test('R6: reactivated after the deadline, the fence day is not backfilled as missed', () => {
+  setClock(db, 'UTC', '00:00');
+  const kid = addChild(db);
+  const id = make([kid], { deadline: '20:00' });
+  childRuns(db, kid.id, at('2026-10-01T12:00:00Z'));
+  updateChecklist(db, id, body([kid], { deadline: '20:00', active: false }), at('2026-10-02T12:00:00Z'));
+  const late = at('2026-10-10T21:00:00Z');
+  updateChecklist(db, id, body([kid], { deadline: '20:00', active: true }), late);
+  assert.deepEqual(childRuns(db, kid.id, late), []);
+  childRuns(db, kid.id, at('2026-10-11T12:00:00Z'));
+  assert.deepEqual(runsFor(kid, id).map(r => [r.date, r.status]), [['2026-10-01', 'missed'], ['2026-10-11', 'open']]);
+});
+
+test('R7: a schedule change does not backfill days the old schedule skipped', () => {
+  setClock(db, 'UTC', '00:00');
+  const kid = addChild(db);
+  const weekdays = { type: 'weekly', days: [1, 2, 3, 4, 5] };
+  const id = make([kid], { schedule: weekdays });
+  childRuns(db, kid.id, at('2026-10-16T12:00:00Z')); // Fri
+  const sunday = at('2026-10-18T12:00:00Z');
+  updateChecklist(db, id, body([kid], { schedule: { type: 'daily' } }), sunday);
+  childRuns(db, kid.id, sunday);
+  assert.deepEqual(runsFor(kid, id).map(r => [r.date, r.status]), [['2026-10-16', 'missed'], ['2026-10-18', 'open']]);
+});
+
+test('R8: a deadline equal to the reset time lasts the whole day', () => {
+  setClock(db, 'UTC', '00:00');
+  const kid = addChild(db);
+  const id = make([kid], { deadline: '00:00' });
+  const [run] = childRuns(db, kid.id, at('2026-10-20T00:00:00Z'));
+  assert.equal(run.date, TUE);
+  assert.equal(run.status, 'open');
+  assert.equal(run.deadline_at, '2026-10-21T00:00:00.000Z');
+  assert.equal(childRuns(db, kid.id, at('2026-10-20T23:59:00Z'))[0].status, 'open');
+  childRuns(db, kid.id, at('2026-10-21T00:01:00Z'));
+  assert.equal(runsFor(kid, id)[0].status, 'missed');
+});
+
+test('tick and submit views carry the streak', () => {
+  setClock(db, 'UTC', '00:00');
+  const kid = addChild(db);
+  make([kid], { auto_approve: true });
+  const [run] = childRuns(db, kid.id, NOON_TUE);
+  const ticked = tickAll(kid, run, NOON_TUE);
+  assert.equal(ticked.streak, 0);
+  assert.equal(submitRun(db, run.id, { childId: kid.id }, NOON_TUE).view.streak, 1);
+});

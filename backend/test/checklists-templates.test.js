@@ -60,7 +60,7 @@ test('update replaces items, keeps the id, and 404s for missing or archived', ()
   assert.equal(after.name, 'Evening');
   assert.deepEqual(after.items.map(i => i.label), ['Pajamas']);
   assert.ok(!before.items.some(i => i.id === after.items[0].id));
-  assert.deepEqual(after.assignments, []);
+  assert.deepEqual(after.assignments, [{ childId: kid.id, minutesOverride: null }]); // omitted assignments are kept (R9)
   assert.equal(status(() => updateChecklist(db, 'missing', base())), 404);
   archiveChecklist(db, id);
   assert.equal(status(() => updateChecklist(db, id, base())), 404);

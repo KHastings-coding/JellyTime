@@ -30,7 +30,8 @@ function validateBody(db, body) {
   }
   const icon = typeof body.icon === 'string' && body.icon.trim() ? body.icon.trim() : '📝';
   const schedule = validateSchedule(body.schedule);
-  const assignments = validateAssignments(db, body.assignments ?? [], RANGE);
+  // Omitted assignments mean "leave them as they are" on update (like chores); [] clears them.
+  const assignments = body.assignments === undefined ? null : validateAssignments(db, body.assignments, RANGE);
   return {
     name, icon, items, rewardMinutes, deadline, schedule, assignments,
     autoApprove: body.auto_approve ? 1 : 0,
@@ -52,7 +53,7 @@ export function createChecklist(db, body) {
       VALUES (?,?,?,?,?,?,?,?)`)
       .run(id, v.name, v.icon, v.rewardMinutes, v.autoApprove, v.deadline, JSON.stringify(v.schedule), v.active);
     replaceItems(db, id, v.items);
-    setAssignments(db, 'checklist', id, v.assignments);
+    setAssignments(db, 'checklist', id, v.assignments ?? []);
   })();
   return { id };
 }
@@ -65,28 +66,34 @@ function requireLive(db, id) {
 export function updateChecklist(db, id, body, now = new Date()) {
   requireLive(db, id);
   const v = validateBody(db, body);
-  const wasActive = !!db.prepare('SELECT active FROM checklist_templates WHERE id=?').get(id).active;
+  const stored = db.prepare('SELECT active, schedule FROM checklist_templates WHERE id=?').get(id);
+  const wasActive = !!stored.active;
+  const scheduleChanged = stored.schedule !== JSON.stringify(v.schedule);
   db.transaction(() => {
     db.prepare(`UPDATE checklist_templates SET name=?, icon=?, reward_minutes=?, auto_approve=?, deadline=?,
       schedule=?, active=? WHERE id=?`)
       .run(v.name, v.icon, v.rewardMinutes, v.autoApprove, v.deadline, JSON.stringify(v.schedule), v.active, id);
     replaceItems(db, id, v.items);
-    const kept = new Set(v.assignments.map(a => a.childId));
-    const before = new Set(getAssignments(db, 'checklist', id).map(a => a.childId));
-    const removed = [...before].filter(c => !kept.has(c));
-    setAssignments(db, 'checklist', id, v.assignments);
-    // Days the checklist didn't apply to a kid never count as missed: fence backfill at the day it
-    // (re)applies — a new assignment, or every assigned kid when the checklist is reactivated.
-    const fence = db.prepare(`INSERT INTO checklist_fences (checklist_id, child_id, since) VALUES (?,?,?)
-      ON CONFLICT (checklist_id, child_id) DO UPDATE SET since=excluded.since`);
+    const current = getAssignments(db, 'checklist', id);
+    const assignments = v.assignments ?? current;
+    const kept = assignments.map(a => a.childId);
+    const before = new Set(current.map(a => a.childId));
+    const removed = [...before].filter(c => !kept.includes(c));
+    setAssignments(db, 'checklist', id, assignments);
     const reactivated = !wasActive && v.active === 1;
-    for (const childId of kept) {
-      if (reactivated || !before.has(childId)) fence.run(id, childId, currentDay(db, { id: childId }, now));
-    }
+    fenceKids(db, id, reactivated || scheduleChanged ? kept : kept.filter(c => !before.has(c)), now);
     // An unassigned kid loses today's run only while it is still open; a submitted one stays reviewable.
     const del = db.prepare("DELETE FROM checklist_runs WHERE checklist_id=? AND child_id=? AND status='open' AND date>=?");
     for (const childId of removed) del.run(id, childId, currentDay(db, { id: childId }, now));
   })();
+}
+
+// Days before a fence, and the fence day itself, are never backfilled. A kid is fenced at their current day
+// whenever the checklist starts applying to them anew: a new assignment, a reactivation, or a schedule change.
+function fenceKids(db, checklistId, kidIds, now) {
+  const fence = db.prepare(`INSERT INTO checklist_fences (checklist_id, child_id, since) VALUES (?,?,?)
+    ON CONFLICT (checklist_id, child_id) DO UPDATE SET since=excluded.since`);
+  for (const childId of kidIds) fence.run(checklistId, childId, currentDay(db, { id: childId }, now));
 }
 
 export function archiveChecklist(db, id, now = new Date()) {
@@ -197,7 +204,7 @@ export function syncRuns(db, child, now = new Date()) {
         const after = addDays(newest, 1);
         const since = db.prepare('SELECT since FROM checklist_fences WHERE checklist_id=? AND child_id=?')
           .get(c.id, child.id)?.since;
-        const from = [after, addDays(day, -BACKFILL_DAYS), since].filter(Boolean).sort().at(-1);
+        const from = [after, addDays(day, -BACKFILL_DAYS), since && addDays(since, 1)].filter(Boolean).sort().at(-1);
         const to = addDays(day, -1);
         if (from <= to) for (const date of scheduledDatesBetween(schedule, from, to)) add(date, 'missed');
       }
@@ -228,7 +235,12 @@ export function childRuns(db, childId, now = new Date()) {
   syncRuns(db, child, now);
   return db.prepare('SELECT * FROM checklist_runs WHERE child_id=? AND date=? ORDER BY name, id')
     .all(child.id, currentDay(db, child, now))
-    .map(r => ({ ...runView(db, r, now), streak: streaks(db, child.id, r.checklist_id).streak }));
+    .map(r => kidView(db, r, now));
+}
+
+// What the kid sees: the run plus its current streak.
+function kidView(db, run, now) {
+  return { ...runView(db, run, now), streak: streaks(db, run.child_id, run.checklist_id).streak };
 }
 
 const getRun = (db, runId) => db.prepare('SELECT * FROM checklist_runs WHERE id=?').get(runId);
@@ -264,7 +276,7 @@ export function tickItem(db, runId, { childId, itemId, done } = {}, now = new Da
   item.done = !!done;
   const info = db.prepare("UPDATE checklist_runs SET items=? WHERE id=? AND status='open'").run(JSON.stringify(items), run.id);
   if (info.changes === 0) throw new HttpError(409, 'This checklist changed; refresh and try again');
-  return runView(db, getRun(db, run.id), now);
+  return kidView(db, getRun(db, run.id), now);
 }
 
 export function submitRun(db, runId, { childId } = {}, now = new Date()) {
@@ -281,7 +293,7 @@ export function submitRun(db, runId, { childId } = {}, now = new Date()) {
     if (info.changes === 0) throw new HttpError(409, 'This checklist was already submitted');
     if (auto) creditRun(db, run, child, now);
   })();
-  return { view: runView(db, getRun(db, run.id), now), notify: !auto };
+  return { view: kidView(db, getRun(db, run.id), now), notify: !auto };
 }
 
 // ---- Parent review: works from the run's snapshot, so archived checklists stay reviewable ----

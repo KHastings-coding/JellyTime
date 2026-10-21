@@ -71,4 +71,7 @@ test('deadlineInstant lands on next calendar date when deadline is before reset'
   assert.equal(deadlineInstant('2026-10-20', '01:00', 'UTC', '04:00').toISOString(), '2026-10-21T01:00:00.000Z');
   assert.equal(deadlineInstant('2026-10-20', '20:30', 'UTC', '00:00').toISOString(), '2026-10-20T20:30:00.000Z');
   assert.equal(deadlineInstant('2026-10-20', null, 'UTC', '00:00'), null);
+  // A deadline equal to the reset time is the end of the run's day.
+  assert.equal(deadlineInstant('2026-10-20', '00:00', 'UTC', '00:00').toISOString(), '2026-10-21T00:00:00.000Z');
+  assert.equal(deadlineInstant('2026-10-20', '04:00', 'UTC', '04:00').toISOString(), '2026-10-21T04:00:00.000Z');
 });
